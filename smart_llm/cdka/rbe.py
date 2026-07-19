@@ -36,7 +36,8 @@ class RetrievalBenefitEstimator(nn.Module):
     @torch.no_grad()
     def predict(self, x) -> np.ndarray:
         self.eval()
-        return self.forward(to_tensor(x)).cpu().numpy().astype(np.float32)
+        dev = next(self.parameters()).device
+        return self.forward(to_tensor(x, dev)).cpu().numpy().astype(np.float32)
 
 
 @dataclass

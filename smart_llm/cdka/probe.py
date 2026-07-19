@@ -54,7 +54,9 @@ class ConfidenceProbe(nn.Module):
     @torch.no_grad()
     def predict(self, x, mask=None) -> dict:
         self.eval()
-        logits = self.forward(to_tensor(x), None if mask is None else to_tensor(mask),
+        dev = next(self.parameters()).device
+        logits = self.forward(to_tensor(x, dev),
+                              None if mask is None else to_tensor(mask, dev),
                               apply_temperature=True)
         log_probs = torch.log_softmax(logits, dim=-1)
         probs = log_probs.exp()
@@ -71,7 +73,9 @@ class ConfidenceProbe(nn.Module):
     @torch.no_grad()
     def pooled_features(self, x, mask=None) -> np.ndarray:
         self.eval()
-        p = self.pooled(to_tensor(x), None if mask is None else to_tensor(mask))
+        dev = next(self.parameters()).device
+        p = self.pooled(to_tensor(x, dev),
+                        None if mask is None else to_tensor(mask, dev))
         return p.cpu().numpy().astype(np.float32)
 
 
@@ -87,11 +91,12 @@ class ProbeData:
 def _fit_temperature(probe: ConfidenceProbe, val: ProbeData) -> None:
     """Optimise a single scalar temperature to minimise val NLL."""
     probe.eval()
+    dev = next(probe.parameters()).device
     with torch.no_grad():
-        logits = probe.forward(to_tensor(val.x),
-                               None if val.mask is None else to_tensor(val.mask))
-    y = to_tensor(val.y, dtype=torch.long)
-    log_temp = torch.zeros(1, requires_grad=True)
+        logits = probe.forward(to_tensor(val.x, dev),
+                               None if val.mask is None else to_tensor(val.mask, dev))
+    y = to_tensor(val.y, dev, dtype=torch.long)
+    log_temp = torch.zeros(1, requires_grad=True, device=dev)
     opt = torch.optim.LBFGS([log_temp], lr=0.1, max_iter=60)
     nll = nn.CrossEntropyLoss()
 
