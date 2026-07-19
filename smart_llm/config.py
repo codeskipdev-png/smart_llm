@@ -183,7 +183,11 @@ class UAASConfig:
         default_factory=lambda: ["q_proj", "k_proj", "v_proj", "o_proj"])
     epochs: int = 3
     lr: float = 1e-4
-    batch_size: int = 4                     # small: backprop runs through frozen 7B
+    batch_size: int = 2                     # small: backprop runs through frozen 7B
+    #: training sequence cap. The full-vocab logits tensor [B, T, ~152k] dominates
+    #: memory, so a shorter T (answer scaffold kept via left-truncation) is the
+    #: main OOM lever on a 24GB card. Eval scoring still uses llm.max_input_tokens.
+    max_train_tokens: int = 512
     gradient_checkpointing: bool = True     # fit LoRA training on a 24GB card
     #: number of discrete rank buckets for the adaptive scheduler.
     rank_buckets: List[int] = field(default_factory=lambda: [4, 8, 16, 24, 32])

@@ -63,6 +63,7 @@ uaas:
   rank_buckets: [4, 8, 16, 24, 32]
   epochs: 3
   batch_size: 2              # backprop runs through the frozen 7B; 2 is safe on 24GB
+  max_train_tokens: 512      # caps the [B,T,vocab] logits tensor (main OOM lever)
   gradient_checkpointing: true
 
 explain:

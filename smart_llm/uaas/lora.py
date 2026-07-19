@@ -79,7 +79,8 @@ class UAASLoRA:
     def build_examples(self, texts: List[str], labels, verbalizer: VerbalizerSpec):
         torch = self.torch
         letter_ids = primary_letter_ids(self.tokenizer, verbalizer.letters)
-        max_t = self.cfg.llm.max_input_tokens
+        # cap TRAINING length: the [B, T, vocab] logits tensor dominates memory.
+        max_t = min(self.cfg.uaas.max_train_tokens, self.cfg.llm.max_input_tokens)
         examples = []
         for text, y in zip(texts, labels):
             msg = build_classification_messages(text, verbalizer)
