@@ -8,6 +8,9 @@ CONFIG="${1:-configs/default.yaml}"
 DATASET="${2:-20newsgroups}"
 PY="python -m"
 
+# reduce CUDA fragmentation on 24GB cards
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+
 # core study (Stage 1/2 + ablation + case study + tables/figures + paper)
 bash scripts/run_phase1a.sh "$CONFIG" "$DATASET"
 

@@ -41,6 +41,14 @@ class UAASLoRA:
             attn_implementation=cfg.llm.attn_implementation)
         for p in self.base.parameters():
             p.requires_grad_(False)
+        if cfg.uaas.gradient_checkpointing:      # fit LoRA training on 24GB
+            self.base.config.use_cache = False
+            try:
+                self.base.gradient_checkpointing_enable(
+                    gradient_checkpointing_kwargs={"use_reentrant": False})
+            except TypeError:
+                self.base.gradient_checkpointing_enable()
+            self.base.enable_input_require_grads()
         self.device = self.base.get_input_embeddings().weight.device
         self.peft = None
         self.adapters: Dict[str, int] = {}

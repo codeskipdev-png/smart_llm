@@ -77,7 +77,7 @@ class AttributionExplainer:
         torch = self.torch
         msg = build_classification_messages(text, verbalizer)
         id_list = encode_chat(self.tokenizer, msg, add_generation_prompt=True)
-        max_t = self.cfg.llm.max_input_tokens
+        max_t = self.cfg.explain.max_input_tokens   # shorter cap -> less IG memory
         if len(id_list) > max_t:
             id_list = id_list[-max_t:]
         return torch.tensor([id_list], dtype=torch.long, device=self.device)
@@ -91,6 +91,21 @@ class AttributionExplainer:
         return score_from_logits(out.logits[0, -1, :], groups, true_label)
 
     # ------------------------------------------------------------------ #
+    def _set_checkpointing(self, on: bool) -> None:
+        """Toggle gradient checkpointing (recompute activations in backward)."""
+        if not self.cfg.explain.gradient_checkpointing:
+            return
+        try:
+            if on:
+                self.model.gradient_checkpointing_enable(
+                    gradient_checkpointing_kwargs={"use_reentrant": False})
+                self.model.enable_input_require_grads()
+            else:
+                self.model.gradient_checkpointing_disable()
+        except TypeError:  # older transformers: no kwargs arg
+            (self.model.gradient_checkpointing_enable() if on
+             else self.model.gradient_checkpointing_disable())
+
     def attribute(self, text, verbalizer) -> Attribution:
         torch = self.torch
         ids = self._prompt_ids(text, verbalizer)
@@ -100,9 +115,11 @@ class AttributionExplainer:
 
         def forward_letter(input_ids):
             out = self.model(input_ids=input_ids,
-                             attention_mask=torch.ones_like(input_ids))
+                             attention_mask=torch.ones_like(input_ids),
+                             use_cache=False)
             return out.logits[:, -1, letter_id]
 
+        self._set_checkpointing(True)
         try:
             from captum.attr import LayerIntegratedGradients
             lig = LayerIntegratedGradients(forward_letter, emb_layer)
@@ -113,6 +130,15 @@ class AttributionExplainer:
             scores = attr.sum(dim=-1).squeeze(0).abs().float().detach().cpu().numpy()
         except ImportError:
             scores = self._input_x_grad(ids, forward_letter, emb_layer)
+        except torch.cuda.OutOfMemoryError:      # IG too big -> single-backward fallback
+            torch.cuda.empty_cache()
+            _log.warning("IG OOM; falling back to input x gradient for %d tokens",
+                         ids.shape[1])
+            scores = self._input_x_grad(ids, forward_letter, emb_layer)
+        finally:
+            self._set_checkpointing(False)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
         tokens = self.tokenizer.convert_ids_to_tokens(ids[0].tolist())
         top = self._top_content_tokens(tokens, scores, self.cfg.explain.top_k_tokens)
@@ -126,7 +152,8 @@ class AttributionExplainer:
         def fwd(inputs_embeds):
             out = self.model(inputs_embeds=inputs_embeds,
                              attention_mask=torch.ones(inputs_embeds.shape[:2],
-                                                       device=inputs_embeds.device))
+                                                       device=inputs_embeds.device),
+                             use_cache=False)
             return out.logits[:, -1, :]
 
         logit = fwd(emb)
@@ -165,6 +192,7 @@ class AttributionExplainer:
         ids = torch.tensor([id_list], dtype=torch.long, device=self.device)
         with torch.no_grad():
             gen = self.model.generate(ids, max_new_tokens=max_new, do_sample=False,
+                                      use_cache=True,   # fast decode (KV cache)
                                       pad_token_id=self.tokenizer.pad_token_id)
         return self.tokenizer.decode(gen[0, ids.shape[1]:], skip_special_tokens=True)
 

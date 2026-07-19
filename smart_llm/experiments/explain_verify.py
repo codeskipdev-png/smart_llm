@@ -49,6 +49,11 @@ def run(cfg, n_samples: int = None) -> pd.DataFrame:
             "faithfulness": score,
             "explanation": explanation.replace("\n", " ")[:500],
         })
+        try:
+            import torch
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
 
     df = pd.DataFrame(rows)
     atomic_write_csv(df, f"{cfg.paths.results_dir}/explain_{cfg.data.dataset}.csv")

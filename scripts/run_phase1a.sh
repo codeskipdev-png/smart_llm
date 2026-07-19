@@ -8,6 +8,9 @@ CONFIG="${1:-configs/default.yaml}"
 DATASET="${2:-20newsgroups}"
 PY="python -m"
 
+# reduce CUDA fragmentation on 24GB cards
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+
 echo "=== SMART-LLM behavioural study | config=$CONFIG dataset=$DATASET ==="
 
 # Stage 1 (heavy, GPU): frozen features + ground-truth retrieval benefit + timings

@@ -89,6 +89,11 @@ def run(cfg, n_each: int = 5) -> pd.DataFrame:
             "faithfulness": faith,
         })
         md.append(_render_md(r, corpus, text, docs, expl, attr.top_tokens, faith))
+        try:
+            import torch
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
 
     df = pd.DataFrame(rows)
     atomic_write_csv(df, f"{cfg.paths.results_dir}/case_study_{cfg.data.dataset}.csv")

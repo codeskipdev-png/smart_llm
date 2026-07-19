@@ -183,7 +183,8 @@ class UAASConfig:
         default_factory=lambda: ["q_proj", "k_proj", "v_proj", "o_proj"])
     epochs: int = 3
     lr: float = 1e-4
-    batch_size: int = 8
+    batch_size: int = 4                     # small: backprop runs through frozen 7B
+    gradient_checkpointing: bool = True     # fit LoRA training on a 24GB card
     #: number of discrete rank buckets for the adaptive scheduler.
     rank_buckets: List[int] = field(default_factory=lambda: [4, 8, 16, 24, 32])
 
@@ -193,8 +194,10 @@ class ExplainConfig:
     """Contribution 3 — attribution-guided explanation verification."""
     method: str = "integrated_gradients"    # integrated_gradients | input_x_gradient
     ig_steps: int = 32
-    ig_internal_batch: int = 8              # IG interpolation batch (caps GPU memory)
+    ig_internal_batch: int = 1              # IG interpolation batch (1 = min memory)
     dtype: str = "bfloat16"                 # attribution dtype; fp32 7B won't fit 24GB
+    max_input_tokens: int = 1024            # shorter prompt cap for attribution memory
+    gradient_checkpointing: bool = True     # recompute activations in backward (memory)
     top_k_tokens: int = 10                  # salient tokens considered "important"
     n_samples: int = 200                    # samples to run attribution on (cost)
 
