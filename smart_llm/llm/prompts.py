@@ -19,6 +19,19 @@ SYSTEM_PROMPT = (
 )
 
 
+def encode_chat(tokenizer, messages, add_generation_prompt: bool = True) -> List[int]:
+    """Return a plain ``list[int]`` of token ids for a chat prompt.
+
+    Version-agnostic: some transformers releases make
+    ``apply_chat_template(tokenize=True, return_tensors=...)`` return a
+    ``BatchEncoding`` rather than a tensor. We render to text then tokenize with
+    ``add_special_tokens=False`` (the template already embeds special tokens).
+    """
+    text = tokenizer.apply_chat_template(
+        messages, add_generation_prompt=add_generation_prompt, tokenize=False)
+    return tokenizer.encode(text, add_special_tokens=False)
+
+
 def option_letters(n: int) -> List[str]:
     """A, B, ..., for up to 26 classes."""
     if n > len(string.ascii_uppercase):

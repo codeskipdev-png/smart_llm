@@ -25,7 +25,7 @@ from ..config import Config
 from ..llm.classifier import (option_token_ids, primary_letter_ids,
                               score_from_logits)
 from ..llm.prompts import (SYSTEM_PROMPT, VerbalizerSpec,
-                           build_classification_messages)
+                           build_classification_messages, encode_chat)
 from ..utils.logging import get_logger
 
 _log = get_logger("smart_llm.explain")
@@ -76,12 +76,11 @@ class AttributionExplainer:
     def _prompt_ids(self, text, verbalizer):
         torch = self.torch
         msg = build_classification_messages(text, verbalizer)
-        ids = self.tokenizer.apply_chat_template(
-            msg, add_generation_prompt=True, tokenize=True, return_tensors="pt")
+        id_list = encode_chat(self.tokenizer, msg, add_generation_prompt=True)
         max_t = self.cfg.llm.max_input_tokens
-        if ids.shape[1] > max_t:
-            ids = ids[:, -max_t:]
-        return ids.to(self.device)
+        if len(id_list) > max_t:
+            id_list = id_list[-max_t:]
+        return torch.tensor([id_list], dtype=torch.long, device=self.device)
 
     def predict(self, text, verbalizer, true_label=None) -> dict:
         torch = self.torch
@@ -160,11 +159,10 @@ class AttributionExplainer:
                 f"sentences, explain which words or phrases in the text justify that "
                 f"category."},
         ]
-        ids = self.tokenizer.apply_chat_template(
-            msg, add_generation_prompt=True, tokenize=True, return_tensors="pt")
-        if ids.shape[1] > self.cfg.llm.max_input_tokens:
-            ids = ids[:, -self.cfg.llm.max_input_tokens:]
-        ids = ids.to(self.device)
+        id_list = encode_chat(self.tokenizer, msg, add_generation_prompt=True)
+        if len(id_list) > self.cfg.llm.max_input_tokens:
+            id_list = id_list[-self.cfg.llm.max_input_tokens:]
+        ids = torch.tensor([id_list], dtype=torch.long, device=self.device)
         with torch.no_grad():
             gen = self.model.generate(ids, max_new_tokens=max_new, do_sample=False,
                                       pad_token_id=self.tokenizer.pad_token_id)

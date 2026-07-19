@@ -15,7 +15,8 @@ import numpy as np
 from ..config import Config
 from ..llm.classifier import (option_token_ids, primary_letter_ids,
                               score_from_logits)
-from ..llm.prompts import VerbalizerSpec, build_classification_messages
+from ..llm.prompts import (VerbalizerSpec, build_classification_messages,
+                          encode_chat)
 from ..utils.device import resolve_dtype
 from ..utils.logging import get_logger
 
@@ -74,8 +75,7 @@ class UAASLoRA:
         examples = []
         for text, y in zip(texts, labels):
             msg = build_classification_messages(text, verbalizer)
-            pids = self.tokenizer.apply_chat_template(
-                msg, add_generation_prompt=True, tokenize=True)
+            pids = encode_chat(self.tokenizer, msg, add_generation_prompt=True)
             if len(pids) > max_t - 1:
                 pids = pids[-(max_t - 1):]
             tgt = letter_ids[int(y)]
@@ -134,12 +134,11 @@ class UAASLoRA:
         self.peft.eval()
         groups = option_token_ids(self.tokenizer, verbalizer.letters)
         msg = build_classification_messages(text, verbalizer)
-        ids = self.tokenizer.apply_chat_template(
-            msg, add_generation_prompt=True, tokenize=True, return_tensors="pt")
+        id_list = encode_chat(self.tokenizer, msg, add_generation_prompt=True)
         max_t = self.cfg.llm.max_input_tokens
-        if ids.shape[1] > max_t:
-            ids = ids[:, -max_t:]
-        ids = ids.to(self.device)
+        if len(id_list) > max_t:
+            id_list = id_list[-max_t:]
+        ids = torch.tensor([id_list], dtype=torch.long, device=self.device)
         with torch.no_grad():
             out = self.peft(input_ids=ids, attention_mask=torch.ones_like(ids))
         return score_from_logits(out.logits[0, -1, :], groups, true_label)
