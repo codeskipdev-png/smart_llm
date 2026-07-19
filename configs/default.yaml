@@ -62,6 +62,8 @@ uaas:
   static_ranks: [4, 16, 32]
   rank_buckets: [4, 8, 16, 24, 32]
   epochs: 3
+  batch_size: 2              # backprop runs through the frozen 7B; 2 is safe on 24GB
+  gradient_checkpointing: true
 
 explain:
   method: integrated_gradients
