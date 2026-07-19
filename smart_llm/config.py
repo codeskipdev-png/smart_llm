@@ -193,6 +193,8 @@ class ExplainConfig:
     """Contribution 3 — attribution-guided explanation verification."""
     method: str = "integrated_gradients"    # integrated_gradients | input_x_gradient
     ig_steps: int = 32
+    ig_internal_batch: int = 8              # IG interpolation batch (caps GPU memory)
+    dtype: str = "bfloat16"                 # attribution dtype; fp32 7B won't fit 24GB
     top_k_tokens: int = 10                  # salient tokens considered "important"
     n_samples: int = 200                    # samples to run attribution on (cost)
 

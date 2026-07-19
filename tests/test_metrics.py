@@ -46,3 +46,40 @@ def test_ece_bounds():
     correct = np.array([1.0, 1.0, 0.0, 0.0])
     e = M.expected_calibration_error(conf, correct, n_bins=5)
     assert 0.0 <= e <= 1.0
+
+
+def test_macro_prf():
+    pred = np.array([0, 1, 2, 2, 0])
+    label = np.array([0, 1, 2, 1, 0])
+    r = M.precision_recall_f1_macro(pred, label, n_classes=3)
+    for k in ("precision", "recall", "f1"):
+        assert 0.0 <= r[k] <= 1.0
+    perfect = M.precision_recall_f1_macro(label, label, 3)
+    assert abs(perfect["f1"] - 1.0) < 1e-9
+
+
+def test_binary_prf_router():
+    dec = np.array([1, 1, 0, 0, 1])
+    orc = np.array([1, 0, 0, 1, 1])
+    b = M.binary_prf(dec, orc)
+    # tp=2 (idx0,4), fp=1 (idx1), fn=1 (idx3)
+    assert abs(b["precision"] - 2 / 3) < 1e-9
+    assert abs(b["recall"] - 2 / 3) < 1e-9
+
+
+def test_mae_and_brier():
+    assert M.mae(np.array([1.0, 2.0]), np.array([1.0, 4.0])) == 1.0
+    # perfectly confident & correct -> Brier 0
+    assert M.brier_score(np.array([1.0, 1.0]), np.array([1.0, 1.0])) == 0.0
+    assert abs(M.brier_score(np.array([0.5]), np.array([1.0])) - 0.25) < 1e-9
+
+
+def test_reliability_and_difficulty():
+    conf = np.linspace(0.05, 0.95, 20)
+    correct = (np.arange(20) % 2).astype(float)
+    bc, ba, cnt = M.reliability_curve(conf, correct, n_bins=5)
+    assert len(bc) == len(ba) == len(cnt)
+    assert cnt.sum() == 20
+    tiers = M.difficulty_tertiles(np.arange(30, dtype=float))
+    assert set(np.unique(tiers)).issubset({0, 1, 2})
+    assert tiers[0] == 0 and tiers[-1] == 2

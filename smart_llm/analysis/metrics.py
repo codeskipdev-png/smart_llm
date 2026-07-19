@@ -61,6 +61,90 @@ def macro_f1(pred: np.ndarray, label: np.ndarray, n_classes: int = None) -> floa
     return float(np.mean(f1s)) if f1s else float("nan")
 
 
+def precision_recall_f1_macro(pred: np.ndarray, label: np.ndarray,
+                              n_classes: int = None) -> dict:
+    """Macro-averaged precision / recall / F1 (classes absent from both skipped)."""
+    pred = np.asarray(pred, dtype=np.int64)
+    label = np.asarray(label, dtype=np.int64)
+    if len(label) == 0:
+        return {"precision": float("nan"), "recall": float("nan"), "f1": float("nan")}
+    classes = range(n_classes) if n_classes else np.unique(
+        np.concatenate([pred, label]))
+    ps, rs, fs = [], [], []
+    for c in classes:
+        tp = int(np.sum((pred == c) & (label == c)))
+        fp = int(np.sum((pred == c) & (label != c)))
+        fn = int(np.sum((pred != c) & (label == c)))
+        if tp + fp == 0 and tp + fn == 0:
+            continue
+        prec = tp / (tp + fp) if (tp + fp) else 0.0
+        rec = tp / (tp + fn) if (tp + fn) else 0.0
+        f1 = 2 * prec * rec / (prec + rec) if (prec + rec) else 0.0
+        ps.append(prec); rs.append(rec); fs.append(f1)
+    m = lambda a: float(np.mean(a)) if a else float("nan")
+    return {"precision": m(ps), "recall": m(rs), "f1": m(fs)}
+
+
+def binary_prf(decision: np.ndarray, oracle: np.ndarray) -> dict:
+    """Precision/recall/F1 treating 'retrieve' (=1) as the positive class."""
+    decision = np.asarray(decision, dtype=np.int64)
+    oracle = np.asarray(oracle, dtype=np.int64)
+    tp = int(np.sum((decision == 1) & (oracle == 1)))
+    fp = int(np.sum((decision == 1) & (oracle == 0)))
+    fn = int(np.sum((decision == 0) & (oracle == 1)))
+    prec = tp / (tp + fp) if (tp + fp) else float("nan")
+    rec = tp / (tp + fn) if (tp + fn) else float("nan")
+    f1 = (2 * prec * rec / (prec + rec)
+          if prec == prec and rec == rec and (prec + rec) else float("nan"))
+    return {"precision": prec, "recall": rec, "f1": f1}
+
+
+def mae(pred: np.ndarray, true: np.ndarray) -> float:
+    pred = np.asarray(pred, dtype=np.float64)
+    true = np.asarray(true, dtype=np.float64)
+    if len(true) == 0:
+        return float("nan")
+    return float(np.mean(np.abs(pred - true)))
+
+
+def brier_score(conf: np.ndarray, correct: np.ndarray) -> float:
+    """Confidence Brier score: mean((conf - correct)^2), correct in {0,1}."""
+    conf = np.asarray(conf, dtype=np.float64)
+    correct = np.asarray(correct, dtype=np.float64)
+    if len(conf) == 0:
+        return float("nan")
+    return float(np.mean((conf - correct) ** 2))
+
+
+def reliability_curve(conf: np.ndarray, correct: np.ndarray, n_bins: int = 10):
+    """Return (bin_conf, bin_acc, bin_count) for a reliability diagram."""
+    conf = np.asarray(conf, dtype=np.float64)
+    correct = np.asarray(correct, dtype=np.float64)
+    bins = np.linspace(0.0, 1.0, n_bins + 1)
+    bc, ba, cnt = [], [], []
+    for lo, hi in zip(bins[:-1], bins[1:]):
+        m = (conf > lo) & (conf <= hi)
+        if not np.any(m):
+            continue
+        bc.append(float(conf[m].mean()))
+        ba.append(float(correct[m].mean()))
+        cnt.append(int(m.sum()))
+    return np.array(bc), np.array(ba), np.array(cnt)
+
+
+def difficulty_tertiles(score: np.ndarray) -> np.ndarray:
+    """Split by tertiles of a difficulty score (higher=harder) into 0/1/2 =
+    Easy/Medium/Hard. Returns an int label array."""
+    score = np.asarray(score, dtype=np.float64)
+    if len(score) == 0:
+        return np.array([], dtype=np.int64)
+    q1, q2 = np.quantile(score, [1 / 3, 2 / 3])
+    lab = np.zeros(len(score), dtype=np.int64)
+    lab[score > q1] = 1
+    lab[score > q2] = 2
+    return lab
+
+
 def routing_agreement(decision: np.ndarray, oracle: np.ndarray) -> float:
     decision = np.asarray(decision, dtype=np.int64)
     oracle = np.asarray(oracle, dtype=np.int64)

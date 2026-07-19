@@ -150,7 +150,7 @@ def main():
                 loss_r=loss_r, pred_r=orr.pred, btrue=btrue,
                 oracle=int(loss_r < loss_p),
                 retr_idx=r.indices[i], demo_label_ids=r.demo_label_ids[i],
-                t_r=t_r)
+                t_r=t_r, n_tokens_r=orr.n_prompt_tokens)
 
         writer.add(scalars, vecs, tokens, conds)
 

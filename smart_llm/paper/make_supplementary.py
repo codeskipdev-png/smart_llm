@@ -48,13 +48,17 @@ def build(cfg):
         D.table_from_df(doc, _dc_table(dc), f"Table S. {label} configuration.")
 
     # ---------------- S2 additional ablations ----------------
-    D.heading(doc, "S2  Additional Ablations", level=1)
+    D.heading(doc, "S2  Additional Ablations and Analyses", level=1)
     for name, cap in [
-        ("table5_ablation", "Table S. Pooling ablation (RBE R^2, oracle agreement, "
-                          "regret, probe ECE)."),
-        ("table6_rus_ablation", "Table S. Router-signal ablation: full vs. "
-                             "benefit-only vs. similarity-only vs. confidence-only "
-                             "vs. always/never/oracle."),
+        ("ablation", "Table S. Module ablation: SMART (full) vs. - RBE (similarity "
+                   "only) vs. - Calibration (raw RUS) vs. confidence-only vs. "
+                   "always/never/oracle (agreement, precision, recall, F1, regret, "
+                   "accuracy, retrieval frequency)."),
+        ("table_difficulty", "Table S. Difficulty strata (easy/medium/hard by "
+                          "entropy): confidence, entropy, retrieval frequency, "
+                          "accuracy."),
+        ("table_behavior", "Table S. Retrieval behaviour: frequency, average "
+                        "retrieved examples, prompt length, decision counts."),
         ("table_uaas", "Table S. UAAS: adaptive per-input rank vs. static LoRA "
                     "ranks 4/16/32 (accuracy, macro-F1, average rank, trainable "
                     "parameters)."),
@@ -118,18 +122,25 @@ def build(cfg):
     D.para(doc,
         "Every evaluated sample is logged to results/master_<dataset>.csv with one "
         "row per (pooling × retrieval-condition × sample). The columns are:")
+    meanings = {
+        "id": "sample identifier", "dataset": "dataset name",
+        "label": "gold label index", "pooling": "hidden pooling type",
+        "condition": "retrieval condition", "split": "train/val/test split",
+        "C_i": "internal confidence C_i (probe)", "entropy": "normalised entropy (probe)",
+        "probe_pred": "probe argmax prediction", "conf_llm": "LLM verbalizer confidence",
+        "entropy_llm": "LLM normalised entropy", "sim": "similarity(x,K)",
+        "B_pred": "predicted benefit", "B_true": "ground-truth benefit",
+        "RUS": "retrieval utility score", "calibrated_RUS": "calibrated RUS",
+        "delta_C": "confidence gap delta_C", "smart_decision": "SMART decision (1=retrieve)",
+        "oracle_decision": "oracle decision (1=retrieve)",
+        "loss_without_retrieval": "loss without retrieval",
+        "loss_with_retrieval": "loss with retrieval",
+        "pred_p": "parametric prediction", "pred_r": "retrieval prediction",
+        "smart_pred": "SMART prediction", "regret": "per-sample regret",
+        "t_p": "no-retrieval latency (s)", "t_r": "retrieval latency (s)",
+        "n_tokens_p": "no-retrieval prompt tokens", "n_tokens_r": "retrieval prompt tokens"}
     schema = pd.DataFrame({"Column": MASTER_COLUMNS,
-                           "Meaning": [
-        "sample identifier", "dataset name", "gold label index",
-        "hidden pooling type", "retrieval condition", "train/val/test split",
-        "internal confidence C_i (probe)", "normalised entropy (probe)",
-        "LLM verbalizer confidence", "LLM normalised entropy",
-        "similarity(x,K)", "predicted benefit B_pred", "ground-truth benefit B_true",
-        "retrieval utility score RUS", "calibrated RUS", "confidence gap delta_C",
-        "SMART decision (1=retrieve)", "oracle decision (1=retrieve)",
-        "loss without retrieval", "loss with retrieval",
-        "parametric prediction", "retrieval prediction", "SMART prediction",
-        "per-sample regret", "no-retrieval latency (s)", "retrieval latency (s)"]})
+                           "Meaning": [meanings.get(c, "") for c in MASTER_COLUMNS]})
     D.table_from_df(doc, schema, "Table S. Master per-sample logging schema.")
     D.para(doc,
         "The pipeline is deterministic given the seed. Stage 1 (feature extraction) "

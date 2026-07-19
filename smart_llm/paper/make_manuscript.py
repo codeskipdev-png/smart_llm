@@ -1,9 +1,9 @@
-"""Generate SMART_LLM_main.docx from the real result CSVs.
+"""Generate SMART_LLM_main.docx: a focused, single-dataset behavioural study of
+decision-time retrieval arbitration. Prose is authored inline; every number is
+read from the result CSVs (missing -> ``[[TBD-from-run]]``, never invented).
 
-Prose is authored inline; all numbers are pulled from ``tables/*.csv`` and
-``results/*.json``. When a result file is absent the corresponding number renders
-as ``[[TBD-from-run]]`` and a warning is printed — the generator never invents a
-value. Run the GPU pipeline first, then this.
+Central thesis (kept front-and-centre throughout): the contribution is
+DECISION-TIME RETRIEVAL BENEFIT ESTIMATION, not a RAG+LoRA+XAI pipeline.
 """
 from __future__ import annotations
 
@@ -45,70 +45,68 @@ def _cell(df, row_col, row_val, col, pct=False):
 
 def build_context(cfg):
     t1 = _load(cfg, "table1_main")
-    t2 = _load(cfg, "table2_router")
-    ctx = {
+    t2 = _load(cfg, "table2_router_oracle")
+    t3 = _load(cfg, "table3_rbe")
+    return {
         "smart_acc": _cell(t1, "System", "SMART-LLM (ours)", "Accuracy"),
         "rag_acc": _cell(t1, "System", "Always RAG", "Accuracy"),
         "no_acc": _cell(t1, "System", "No retrieval", "Accuracy"),
         "smart_freq": _cell(t1, "System", "SMART-LLM (ours)", "Retrieval freq.", pct=True),
-        "agree": (_cell(t2, "Pooling", cfg.pooling.default, "Oracle agreement")
-                  if t2 is not None else TBD),
-        "rbe_r2": (_cell(t2, "Pooling", cfg.pooling.default, "RBE R2")
-                   if t2 is not None else TBD),
-        "dataset": cfg.data.dataset,
-        "backbone": cfg.llm.name,
+        "agree": _cell(t2, "Pooling", cfg.pooling.default, "Agreement"),
+        "router_f1": _cell(t2, "Pooling", cfg.pooling.default, "F1"),
+        "rbe_r2": _cell(t3, "Pooling", cfg.pooling.default, "R2"),
+        "rbe_r": _cell(t3, "Pooling", cfg.pooling.default, "Pearson r"),
+        "dataset": cfg.data.dataset, "backbone": cfg.llm.name,
         "embedder": cfg.embedding.name,
     }
-    return ctx, {"t1": t1, "t2": t2}
 
 
 # --------------------------------------------------------------------------- #
 def build(cfg):
     doc = D.new_document()
-    ctx, _ = build_context(cfg)
+    ctx = build_context(cfg)
 
-    D.title(doc, "SMART-LLM: Confidence-Driven Knowledge Arbitration and "
-                 "Adaptive Adapter Scaling for Explainable Few-Shot Large "
-                 "Language Model Text Classification")
-    D.centered(doc, "Anonymous Author(s)", size=11)
-    D.centered(doc, "Under review — Information Sciences / Knowledge-Based "
-                    "Systems / IEEE T-AI", italic=True, size=10)
+    D.title(doc, "SMART-LLM: Decision-Time Retrieval Arbitration for Explainable "
+                 "Few-Shot Large Language Model Text Classification")
+    D.centered(doc, "Anonymous Author(s)")
+    D.centered(doc, "Under review — Information Sciences / Knowledge-Based Systems "
+                    "/ IEEE Transactions on Artificial Intelligence", italic=True, size=10)
     doc.add_paragraph()
 
-    # ---------------- Abstract ----------------
     D.heading(doc, "Abstract", level=1)
     D.para(doc,
-        "Retrieval-augmented generation (RAG) and parameter-efficient fine-tuning "
-        "(PEFT) are usually deployed with static policies: retrieval is assumed to "
-        "help every input and the adaptation capacity of a low-rank adapter is fixed "
-        "in advance. We argue that both assumptions waste computation and can degrade "
-        "accuracy when retrieval is noisy or when inputs vary in difficulty. We "
-        "present SMART-LLM, an uncertainty-driven adaptive-inference framework for "
-        "few-shot text classification with a frozen open-weight large language model "
-        "(LLM). SMART-LLM contributes (i) Confidence-Driven Knowledge Arbitration "
-        "(CDKA), which decides per input whether retrieval will help by comparing an "
-        "internal confidence probe against a calibrated Retrieval Utility Score, "
-        "without ever running retrieval-augmented inference to make the decision (no "
-        "double inference); (ii) Uncertainty-Aware Adapter Scaling (UAAS), which "
-        "selects the LoRA rank per input from an uncertainty signal; and (iii) an "
-        "attribution-guided verification step that tests whether generated "
-        "explanations reflect the tokens that actually drove the prediction. On "
-        f"{ctx['dataset']} with a frozen {ctx['backbone']} backbone, SMART-LLM "
-        f"attains accuracy of {ctx['smart_acc']} while issuing retrieval for only "
+        "Retrieval-augmented generation (RAG) is usually deployed with a static "
+        "policy that retrieves for every input, and parameter-efficient fine-tuning "
+        "with a fixed adapter capacity. Both ignore that inputs differ in whether the "
+        "parametric model already suffices and in whether external evidence will "
+        "actually help. We study a single, sharply posed question: can a system "
+        "estimate the benefit of retrieval BEFORE retrieving, and route accordingly? "
+        "Our contribution is decision-time retrieval benefit estimation. We introduce "
+        "SMART-LLM, which for each input computes an internal confidence from a "
+        "calibrated probe over a frozen large language model (LLM) and a predicted "
+        "retrieval benefit from a Retrieval Benefit Estimator (RBE) that reads only "
+        "the pre-retrieval hidden state and the retrieved-neighbour centroid; the two "
+        "signals are compared to arbitrate retrieval without ever running the "
+        "retrieval-augmented forward pass to decide (no double inference). Uncertainty-"
+        "aware adapter scaling and attribution-guided explanation verification are "
+        "supporting components. Rather than a broad benchmark, we present a focused, "
+        "ten-part behavioural study on 20 Newsgroups with a frozen "
+        f"{ctx['backbone']} backbone. We provide empirical evidence that the RBE "
+        f"predicts realized loss reductions (R^2 = {ctx['rbe_r2']}, r = {ctx['rbe_r']}); "
+        f"that the arbiter agrees with an oracle retrieval policy (agreement "
+        f"{ctx['agree']}, retrieve-decision F1 {ctx['router_f1']}); that SMART-LLM "
+        f"reaches accuracy {ctx['smart_acc']} while retrieving for only "
         f"{ctx['smart_freq']} of inputs, versus {ctx['rag_acc']} for always-on "
-        f"retrieval and {ctx['no_acc']} without retrieval; the router agrees with an "
-        f"oracle retrieval policy at {ctx['agree']}. We report evidence that a "
-        "learned Retrieval Benefit Estimator predicts realized loss reductions "
-        f"(R^2 = {ctx['rbe_r2']}) and that the router remains robust when retrieval "
-        "is corrupted. All tables and figures are generated from logged per-sample "
-        "runs to support reproducibility.")
-
+        f"retrieval and {ctx['no_acc']} without retrieval; and that the arbiter "
+        "suppresses harmful retrieval under noisy and adversarial conditions. All "
+        "numbers are generated from per-sample logs.")
     D.bold_label(doc, "Keywords:",
-        "retrieval-augmented generation; adaptive inference; uncertainty "
-        "estimation; parameter-efficient fine-tuning; model calibration; "
-        "explainable AI; few-shot text classification; large language models.")
+        "decision-time retrieval arbitration; adaptive retrieval-augmented "
+        "generation; retrieval benefit estimation; confidence calibration; "
+        "uncertainty; parameter-efficient fine-tuning; explainable AI; few-shot text "
+        "classification; large language models.")
 
-    _introduction(doc)
+    _introduction(doc, ctx)
     _related_work(doc)
     _methodology(doc, cfg)
     _experiments(doc, cfg)
@@ -125,318 +123,318 @@ def build(cfg):
 
 
 # --------------------------------------------------------------------------- #
-def _introduction(doc):
+def _introduction(doc, ctx):
     D.heading(doc, "1  Introduction", level=1)
     D.para(doc,
-        "Large language models (LLMs) classify text well in few-shot settings, but "
-        "practitioners rarely rely on the parametric model alone. Two augmentations "
-        "dominate practice. Retrieval-augmented generation (RAG) prepends retrieved "
-        "examples to the prompt, and parameter-efficient fine-tuning (PEFT) — most "
-        "commonly low-rank adaptation (LoRA) — injects a small number of trainable "
-        "parameters. Both are typically applied with fixed, input-independent "
-        "policies.")
+        "Augmenting a frozen large language model (LLM) with retrieved in-context "
+        "examples is a standard recipe for few-shot text classification. In its "
+        "common form it is applied unconditionally: every input triggers a retrieval "
+        "and a longer, more expensive forward pass. This is wasteful when the model "
+        "already knows the answer, and it is actively harmful when the retrieved "
+        "context is noisy, off-topic, or adversarial and pulls the prediction away "
+        "from a correct parametric answer.")
     D.para(doc,
-        "This paper questions two default assumptions. First, static RAG assumes "
-        "retrieval always helps. In reality, when the parametric model already knows "
-        "the answer, retrieval adds latency and can inject distracting or "
-        "contradictory context; when the retrieval corpus is noisy or adversarial, "
-        "retrieved neighbours can actively mislead the model. Second, fixed PEFT "
-        "assumes a single adaptation capacity is appropriate for every input, whereas "
-        "easy inputs may need little adaptation and hard inputs may need more. Neither "
-        "assumption accounts for the fact that inputs differ in how confidently the "
-        "model can handle them.")
+        "The natural response is adaptive retrieval — retrieve only when it helps. "
+        "The difficulty is that whether retrieval helps is normally discovered only "
+        "after retrieving and running the augmented model, which defeats the purpose. "
+        "This paper therefore isolates one question and studies it in depth: can the "
+        "benefit of retrieval be estimated at decision time, before the augmented "
+        "pass, and can a system route on that estimate?")
     D.para(doc,
-        "We propose SMART-LLM, which makes inference adaptive to per-input "
-        "uncertainty. The central idea is knowledge arbitration: for each input the "
-        "system estimates whether its internal parametric knowledge suffices, whether "
-        "external retrieval is likely to help, and how much adaptation capacity is "
-        "warranted — and it must do so cheaply, without first paying for the "
-        "augmented inference it is trying to decide about.")
-    D.para(doc, "Our contributions are:")
+        "We answer with SMART-LLM. Its central mechanism, Confidence-Driven Knowledge "
+        "Arbitration (CDKA), compares two quantities that are both available before "
+        "retrieval: a calibrated internal confidence C_i from a lightweight probe on "
+        "the parametric hidden state, and a predicted retrieval benefit B_pred from a "
+        "Retrieval Benefit Estimator (RBE) that reads the pre-retrieval hidden state "
+        "and the embedding centroid of the retrieved neighbours. The RBE is the key "
+        "innovation: it is trained on an offline ground-truth benefit signal and, at "
+        "deployment, turns retrieval routing into a cheap decision rather than a "
+        "second inference.")
+    D.para(doc, "We state the contribution precisely:")
+    D.bold_label(doc, "Novelty.",
+        "The novelty is decision-time retrieval benefit estimation using calibrated "
+        "confidence and a learned utility predictor — not the combination of RAG, "
+        "PEFT, and explainability. SMART-LLM predicts whether retrieval will help "
+        "before retrieving; it does not run retrieval-augmented inference to make the "
+        "decision.")
     D.numbered(doc,
-        "Confidence-Driven Knowledge Arbitration (CDKA): a routing mechanism that "
-        "compares a calibrated internal-confidence probe with a Retrieval Utility "
-        "Score derived from a Retrieval Benefit Estimator, deciding whether to "
-        "retrieve without running retrieval-augmented inference (no double inference).")
+        "CDKA (primary): a decision-theoretic arbitration rule that routes retrieval "
+        "by comparing calibrated internal confidence with a predicted, calibrated "
+        "retrieval utility, with no double inference.")
     D.numbered(doc,
-        "Uncertainty-Aware Adapter Scaling (UAAS): an uncertainty signal that selects "
-        "the LoRA rank per input, compared against static LoRA of ranks 4, 16, and 32.")
+        "RBE (key innovation): a benefit estimator predicting the loss reduction from "
+        "retrieval from pre-retrieval features, evaluated against an oracle.")
     D.numbered(doc,
-        "Attribution-guided explanation verification: an Integrated-Gradients "
-        "procedure that checks whether generated explanations reference the tokens "
-        "that actually drove the prediction, rather than assuming faithfulness.")
+        "Supporting components: uncertainty-aware adapter scaling (per-input LoRA "
+        "rank) and attribution-guided explanation verification.")
     D.para(doc,
-        "We validate CDKA first (the focus of this paper), then report UAAS and "
-        "explanation-verification results. Every reported number is produced from "
-        "per-sample logs to support independent reproduction.")
+        "We deliberately trade breadth for depth: one dataset, ten analyses. This "
+        "lets us characterise the behaviour of the arbiter — its accuracy against an "
+        "oracle, its calibration, its robustness to corrupted retrieval, its "
+        "behaviour across difficulty strata, and its failure modes — rather than "
+        "report a single leaderboard number. We describe findings as demonstrated or "
+        "empirically supported and avoid claims of optimality.")
 
 
 def _related_work(doc):
     D.heading(doc, "2  Related Work", level=1)
-    D.heading(doc, "2.1  Retrieval-Augmented Generation", level=2)
+    D.heading(doc, "2.1  Retrieval-augmented and adaptive retrieval", level=2)
     D.para(doc,
-        "RAG couples a parametric model with a non-parametric retriever so that "
-        "generation is conditioned on retrieved evidence. Subsequent work introduced "
-        "adaptive or self-reflective retrieval, in which the model decides when to "
-        "retrieve. SMART-LLM differs in two respects: the retrieval decision is made "
-        "by a lightweight external estimator over cached representations rather than "
-        "by generating retrieval tokens, and the decision is explicitly framed as a "
-        "comparison between internal confidence and an estimated, calibrated retrieval "
-        "benefit, avoiding a full augmented forward pass at decision time.")
-    D.heading(doc, "2.2  Parameter-Efficient Fine-Tuning", level=2)
+        "RAG conditions generation on retrieved evidence; adaptive and self-reflective "
+        "variants let the model decide when to retrieve, typically by emitting "
+        "retrieval-control tokens during generation — i.e., the decision is itself an "
+        "act of (partial) inference. SMART-LLM differs in kind: the decision is made "
+        "by an external estimator over cached pre-retrieval representations and is "
+        "framed as a comparison between internal confidence and a predicted retrieval "
+        "benefit, so no augmented forward pass is spent to decide.")
+    D.heading(doc, "2.2  Parameter-efficient fine-tuning", level=2)
     D.para(doc,
-        "Adapters, prefix tuning, and low-rank adaptation (LoRA) add a small number "
-        "of trainable parameters to a frozen backbone. Rank is normally a fixed "
-        "hyperparameter. Recent adaptive-rank methods prune or grow rank during "
-        "training; UAAS instead allocates rank per input at inference time as a "
-        "function of predicted uncertainty, which is complementary.")
-    D.heading(doc, "2.3  Calibration and Uncertainty", level=2)
+        "Adapters and low-rank adaptation add few trainable parameters to a frozen "
+        "backbone with a fixed rank. Our supporting UAAS component allocates rank per "
+        "input from an uncertainty signal, complementary to train-time rank search.")
+    D.heading(doc, "2.3  Calibration and uncertainty", level=2)
     D.para(doc,
-        "Confidence calibration (temperature scaling, Platt scaling, isotonic "
-        "regression) aligns predicted probabilities with empirical correctness. "
-        "SMART-LLM uses calibration not only to report trustworthy confidences but as "
-        "a control signal: the Retrieval Utility Score is calibrated onto a "
-        "probability scale so it is directly comparable with the confidence probe in "
-        "the routing rule.")
-    D.heading(doc, "2.4  Explainable AI and Attribution", level=2)
+        "Temperature, Platt, and isotonic calibration align confidences with "
+        "empirical accuracy. We use calibration as a control signal: the retrieval "
+        "utility score is calibrated onto a probability scale so it is directly "
+        "comparable with internal confidence in the arbitration rule.")
+    D.heading(doc, "2.4  Explainability and attribution", level=2)
     D.para(doc,
-        "Feature-attribution methods such as Integrated Gradients assign importance "
-        "to input tokens. Natural-language self-explanations from LLMs are fluent but "
-        "not necessarily faithful. We use attribution as an external check on "
-        "explanation faithfulness rather than as an end in itself.")
+        "Integrated Gradients attributes predictions to input tokens. LLM self-"
+        "explanations are fluent but not guaranteed faithful; we use attribution to "
+        "verify, not to assume, explanation faithfulness.")
 
 
 def _methodology(doc, cfg):
     D.heading(doc, "3  Methodology", level=1)
     D.figure(doc, str(Path(cfg.paths.figures_dir) /
                      f"figure1_architecture_{cfg.data.dataset}.png"),
-             "Figure 1. SMART-LLM inference path. The parametric pass yields the "
-             "hidden state h_L and internal confidence C_i; a cheap retrieval step "
-             "yields the centroid mu_K and similarity. The router compares a "
-             "calibrated Retrieval Utility Score with C_i and only then, if "
-             "warranted, runs the retrieval-augmented pass.")
+             "Figure 1. SMART-LLM decision-time arbitration. All quantities used by "
+             "the arbiter (C_i, h_L, mu_K, sim, B_pred) are available before the "
+             "retrieval-augmented pass, which runs only if the arbiter selects it.")
     D.para(doc,
-        "Let x be an input and y its label over C classes. A frozen instruction-tuned "
-        "LLM is used both as a classifier (via a letter-verbalizer that maps each "
-        "class to an option token, so a single forward pass yields a class "
-        "distribution and a cross-entropy loss) and as a feature extractor.")
-
-    D.heading(doc, "3.1  Confidence-Driven Knowledge Arbitration (CDKA)", level=2)
+        "A frozen instruction-tuned LLM classifies via a letter-verbalizer (each class "
+        "maps to an option token), so one forward pass yields a class distribution and "
+        "a cross-entropy loss, and the final-layer hidden states can be pooled into a "
+        "representation h_L.")
+    D.heading(doc, "3.1  Internal confidence", level=2)
+    D.para(doc, "A lightweight probe with temperature-scaled logits gives")
+    D.equation(doc, "C_i = max_j softmax(W_p h_L)_j", "1")
+    D.heading(doc, "3.2  Retrieval Benefit Estimator (key innovation)", level=2)
     D.para(doc,
-        "From the no-retrieval forward pass we pool the final-layer hidden states "
-        "into a representation h_L. A lightweight confidence probe with weights W_p "
-        "produces an internal confidence:")
-    D.equation(doc, "C_i = max_j  softmax(W_p h_L)_j", "1")
-    D.para(doc,
-        "Given a set K of retrieved neighbours with embedding centroid mu_K, a "
-        "Retrieval Benefit Estimator (RBE) predicts the expected reduction in "
-        "classification loss from retrieval:")
+        "Given retrieved neighbours K with embedding centroid mu_K, the RBE predicts "
+        "the expected loss reduction from retrieval from pre-retrieval features only:")
     D.equation(doc, "B_pred = RBE([ h_L ; mu_K ])", "2")
-    D.para(doc, "The RBE is trained against a ground-truth benefit signal (Section 3.4). "
-        "A Retrieval Utility Score combines semantic similarity with predicted benefit:")
+    D.para(doc, "It is trained against the ground-truth benefit (Section 3.5).")
+    D.heading(doc, "3.3  Arbitration rule (CDKA)", level=2)
+    D.para(doc, "A retrieval utility score mixes similarity and predicted benefit,")
     D.equation(doc, "RUS = alpha * sim(x, K) + beta * B_pred", "3")
-    D.para(doc,
-        "RUS is mapped by a calibration function onto a probability-like scale so it "
-        "is comparable with C_i, and the routing decision is the sign of the "
-        "confidence gap:")
+    D.para(doc, "is calibrated onto a probability scale, and compared with confidence:")
     D.equation(doc, "delta_C = calibrated(RUS) - C_i", "4")
     D.equation(doc, "retrieve(x) = 1[ delta_C > 0 ]", "5")
     D.para(doc,
-        "Crucially, C_i, h_L, mu_K, sim, and B_pred are all available before any "
-        "retrieval-augmented forward pass. The expensive augmented pass is executed "
-        "only when the router chooses retrieval; the ground-truth benefit used to "
-        "train the RBE is computed offline as supervision and is never required at "
-        "deployment. This is what we mean by avoiding double inference.")
-
-    D.heading(doc, "3.2  Calibration of the Retrieval Utility Score", level=2)
+        "Because C_i, h_L, mu_K, sim and B_pred are computed before retrieval, the "
+        "augmented pass is executed only on inputs the arbiter selects. The augmented "
+        "loss is used offline as supervision (Section 3.5) and is never needed to "
+        "decide at deployment — this is the no-double-inference property.")
+    D.heading(doc, "3.4  Supporting components", level=2)
+    D.para(doc, "Uncertainty-aware adapter scaling sets the LoRA rank per input from")
+    D.equation(doc, "U(x) = lam*H_norm + (1-lam)(1 - C_i);  r(x) = r_min + (r_max-r_min)U(x)", "6")
     D.para(doc,
-        "We fit the calibration map on a held-out validation split, treating the "
-        "oracle decision 1[Loss_r < Loss_p] as the binary target and RUS as the "
-        "predictor (Platt scaling by default, with isotonic and temperature variants). "
-        "The mixing weights alpha and beta (with beta = 1 - alpha) are selected on the "
-        "same split to maximise agreement with the oracle, after z-standardising sim "
-        "and B_pred so the weights are comparable.")
-
-    D.heading(doc, "3.3  Uncertainty-Aware Adapter Scaling (UAAS)", level=2)
-    D.para(doc, "We define a per-input uncertainty from the normalised predictive "
-        "entropy H_norm and the confidence probe:")
-    D.equation(doc, "U(x) = lam * H_norm + (1 - lam) * (1 - C_i)", "6")
-    D.para(doc, "and map it to a LoRA rank, snapped to the nearest available adapter:")
-    D.equation(doc, "r(x) = r_min + (r_max - r_min) * U(x)", "7")
+        "and explanation verification checks, via Integrated Gradients, whether a "
+        "generated explanation references the tokens that actually drove the "
+        "prediction.")
+    D.heading(doc, "3.5  Ground-truth benefit, oracle, and regret", level=2)
+    D.para(doc, "Running the frozen LLM without and with retrieval yields Loss_p, "
+        "Loss_r, and")
+    D.equation(doc, "B_true = (Loss_p - Loss_r)/(|Loss_p| + eps);  oracle = 1[Loss_r < Loss_p]", "7")
     D.para(doc,
-        "Confident inputs receive low-rank (cheap) adaptation and uncertain inputs "
-        "receive higher-rank adaptation. We compare adaptive allocation against static "
-        "LoRA of ranks 4, 16, and 32 trained on the same data.")
-
-    D.heading(doc, "3.4  Ground-Truth Benefit and Oracle", level=2)
-    D.para(doc,
-        "For each sample we run the frozen LLM without retrieval to obtain Loss_p and "
-        "with retrieval to obtain Loss_r, and define the ground-truth benefit")
-    D.equation(doc, "B_true = (Loss_p - Loss_r) / (|Loss_p| + eps)", "8")
-    D.para(doc,
-        "The oracle retrieves iff Loss_r < Loss_p. We evaluate the RBE by its R^2 "
-        "against B_true, the router by its agreement with the oracle, and the overall "
-        "policy by its regret, defined per sample as the excess loss incurred relative "
-        "to the oracle choice.")
-
-    D.heading(doc, "3.5  Attribution-Guided Explanation Verification", level=2)
-    D.para(doc,
-        "For a subset of inputs we compute Integrated-Gradients attributions of the "
-        "predicted-class logit with respect to the input embeddings, extract the "
-        "top-attribution content tokens, generate a natural-language explanation from "
-        "the same model, and score the fraction of top-attribution tokens that the "
-        "explanation references. A low score flags an explanation decoupled from the "
-        "evidence the model actually used.")
+        "We evaluate the RBE by R^2/MAE/Pearson against B_true, the arbiter by "
+        "agreement and precision/recall/F1 against the oracle retrieve decision, and "
+        "the policy by regret, the excess loss over the oracle choice.")
 
 
 def _experiments(doc, cfg):
-    D.heading(doc, "4  Experiments", level=1)
-    D.heading(doc, "4.1  Datasets", level=2)
+    D.heading(doc, "4  Experimental Setup", level=1)
     D.para(doc,
-        "We validate CDKA on the 20 Newsgroups topic-classification benchmark and "
-        "provide loaders for AG News, TweetEval, the Financial PhraseBank, and PubMed "
-        "for cross-domain replication. A fixed retrieval pool (train split) is indexed "
-        "and a disjoint evaluation split is routed and logged.")
-    D.heading(doc, "4.2  Baselines", level=2)
-    D.para(doc,
-        "The routing comparison contrasts three systems: (i) No retrieval (parametric "
-        "only), (ii) Always RAG (retrieval for every input), and (iii) the SMART-LLM "
-        "router. We additionally report an oracle upper bound and confidence-only and "
-        "similarity-only routers as ablations. For UAAS the baselines are static LoRA "
-        "ranks 4, 16, and 32.")
-    D.heading(doc, "4.3  Implementation Details", level=2)
-    D.para(doc,
-        f"The backbone is a frozen {cfg.llm.name}; sentence embeddings use "
-        f"{cfg.embedding.name} with a FAISS inner-product index over the retrieval "
-        f"pool. Only the confidence probe, the RBE, the calibration map, and (for "
-        "UAAS) the LoRA adapters are trained. Feature extraction is separated from "
-        "probe/RBE training so the backbone forward passes run once and CDKA can be "
-        "re-trained cheaply. Full hyperparameters are in the Supplementary Material.")
-    D.heading(doc, "4.4  Retrieval Conditions and Ablations", level=2)
-    D.para(doc,
-        "To probe robustness we evaluate three retrieval conditions: clean (true "
-        "nearest neighbours), random (content-independent noise), and adversarial "
-        "(hard negatives drawn from other classes). We ablate the pooling strategy "
-        "(last-token, mean, attention) and the routing signals (similarity-only, "
-        "benefit-only, full).")
+        "We run one rigorous study on 20 Newsgroups (20 topical classes), used as a "
+        "complete platform for behavioural analysis rather than one benchmark among "
+        f"many. The backbone is a frozen {cfg.llm.name}; sentence embeddings use "
+        f"{cfg.embedding.name} indexed with FAISS over the training pool. Only the "
+        "confidence probe, the RBE, the calibration map, and (for UAAS) LoRA adapters "
+        "are trained; the LLM is frozen. Feature extraction is cached so the backbone "
+        "runs once. We compare three systems — No retrieval, Always RAG, SMART-LLM — "
+        "and evaluate three retrieval conditions — clean, random, and adversarial "
+        "(hard negatives from other classes). Hyperparameters are in the Supplement.")
 
 
 def _results(doc, cfg):
-    D.heading(doc, "5  Results", level=1)
-    tabs = [
-        ("table1_main", "Table 1. Main classification performance (clean retrieval, "
-                        "test split): No retrieval vs. Always RAG vs. SMART-LLM."),
-        ("table2_router", "Table 2. Router quality against the oracle by pooling "
-                         "strategy: oracle agreement, mean regret, RBE R^2, and the "
-                         "selected mixing weights."),
-        ("table3_robustness", "Table 3. Retrieval-noise robustness: accuracy and "
-                             "SMART retrieval frequency across clean / random / "
-                             "adversarial conditions."),
-        ("table4_efficiency", "Table 4. Computation efficiency: per-sample latency "
-                            "(LLM passes) and retrieval frequency."),
-        ("table5_ablation", "Table 5. Pooling ablation: RBE R^2, oracle agreement, "
-                          "mean regret, and probe calibration error."),
-        ("table6_rus_ablation", "Table 6. Router-signal ablation (test split)."),
-    ]
-    for name, cap in tabs:
-        df = _load(cfg, name)
-        if df is not None:
-            D.table_from_df(doc, df, cap)
-        else:
-            D.para(doc, f"{cap}  {TBD}")
+    D.heading(doc, "5  Results: A Ten-Part Behavioural Study", level=1)
 
-    D.para(doc,
-        "Experiment 1 (pooling; Tables 2 and 5) compares last-token, mean, and "
-        "attention pooling by RBE R^2 and routing agreement. Experiment 2 (Table 3, "
-        "Figure 3) reports robustness: under random and adversarial retrieval the "
-        "router is expected to reduce its retrieval frequency and thereby limit the "
-        "accuracy loss suffered by always-on retrieval. Experiment 3 (Tables 1 and 4) "
-        "contrasts the three systems on accuracy, macro-F1, latency, and retrieval "
-        "frequency.")
-    figs = [
-        (f"figure2_rbe_{cfg.data.dataset}.png",
-         "Figure 2. RBE prediction quality: predicted vs. ground-truth retrieval "
-         "benefit on the test split."),
-        (f"figure3_robustness_{cfg.data.dataset}.png",
-         "Figure 3. Retrieval robustness across conditions."),
-        (f"figure4_pareto_{cfg.data.dataset}.png",
-         "Figure 4. Accuracy-computation Pareto frontier from a sweep of the routing "
-         "threshold, with No-retrieval and Always-RAG baselines."),
-        (f"figure5_uncertainty_{cfg.data.dataset}.png",
-         "Figure 5. Uncertainty vs. retrieval frequency, with the oracle frequency "
-         "for reference."),
-    ]
-    for fn, cap in figs:
-        D.figure(doc, str(Path(cfg.paths.figures_dir) / fn), cap)
+    def analysis(n, title, blurb, table=None, fig=None, fig_cap=None):
+        D.heading(doc, f"5.{n}  Analysis {n} — {title}", level=2)
+        D.para(doc, blurb)
+        if table is not None:
+            df = _load(cfg, table)
+            cap = _CAPTIONS.get(table, table)
+            if df is not None:
+                D.table_from_df(doc, df, cap)
+            else:
+                D.para(doc, f"{cap}  {TBD}")
+        if fig:
+            D.figure(doc, str(Path(cfg.paths.figures_dir) /
+                             f"{fig}_{cfg.data.dataset}.png"), fig_cap)
+
+    analysis(1, "Overall performance",
+        "SMART-LLM is contrasted with parametric-only and always-retrieve systems on "
+        "accuracy, macro precision/recall/F1, latency, and retrieval frequency "
+        "(Table 1). The question is whether selective retrieval preserves accuracy "
+        "while cutting retrieval calls.",
+        table="table1_main")
+    analysis(2, "Router accuracy against the oracle",
+        "We measure how closely the arbiter reproduces the oracle retrieve decision "
+        "(agreement, precision, recall, F1) and its regret (Table 2), and visualise "
+        "the decision geometry (Figure 2).",
+        table="table2_router_oracle", fig="figure2_router_decision",
+        fig_cap="Figure 2. Router decision process: calibrated retrieval utility vs. "
+                "internal confidence; points above the diagonal (ΔC>0) are routed to "
+                "retrieval.")
+    analysis(3, "Retrieval Benefit Estimator",
+        "The core claim — that retrieval benefit is predictable before retrieval — is "
+        "tested by R^2, MAE, and Pearson correlation against the ground-truth benefit "
+        "(Table 3), with predictions and residuals in Figure 4.",
+        table="table3_rbe", fig="figure4_rbe",
+        fig_cap="Figure 4. RBE predicted vs. ground-truth benefit and residuals.")
+    analysis(4, "Retrieval behaviour",
+        "We report how often and how decisively the arbiter retrieves — retrieval "
+        "frequency, average retrieved examples, prompt length, and the distribution of "
+        "routing margins (Figure 5).",
+        table="table_behavior", fig="figure5_margin_hist",
+        fig_cap="Figure 5. Distribution of the routing margin ΔC with the decision "
+                "threshold; mass on either side gives the retrieval frequency.")
+    analysis(5, "Noise robustness",
+        "Under clean, random, and adversarial retrieval we ask whether the arbiter "
+        "suppresses harmful retrieval: if B_pred is informative, the arbiter should "
+        "retrieve less and lose less accuracy than always-on retrieval when the "
+        "context is corrupted (Table 4, Figure 6).",
+        table="table4_noise", fig="figure6_noise",
+        fig_cap="Figure 6. Accuracy and SMART retrieval frequency across retrieval "
+                "conditions.")
+    analysis(6, "Calibration",
+        "Because the arbitration rule compares a calibrated utility with confidence, "
+        "the quality of confidence calibration matters. We report ECE and Brier for "
+        "the probe confidence versus the raw LLM confidence (Table 5) and the "
+        "reliability diagram (Figure 3).",
+        table="table5_calibration", fig="figure3_reliability",
+        fig_cap="Figure 3. Reliability diagram for the calibrated confidence probe.")
+    analysis(7, "Ablation",
+        "Removing the RBE (similarity-only routing) and the calibration (raw utility) "
+        "isolates each module's contribution to routing quality; confidence-only, "
+        "always/never, and oracle bound the range (Table 6, Figure 7). UAAS is ablated "
+        "separately (adaptive vs. static rank; Supplement).",
+        table="table6_ablation", fig="figure7_ablation",
+        fig_cap="Figure 7. Ablation: oracle agreement and end-task accuracy per "
+                "routing variant.")
+    analysis(8, "Difficulty analysis",
+        "Splitting the test set into easy/medium/hard tiers by predictive entropy, we "
+        "examine how confidence, entropy, and retrieval frequency vary with difficulty "
+        "(Table below): a well-behaved arbiter should retrieve more as difficulty "
+        "rises.",
+        table="table_difficulty")
+    analysis(9, "Qualitative case study",
+        "We inspect matched successful and failure cases (retrieval-helped, internal-"
+        "sufficed, retrieval-hurt, missed-retrieval), each with input, retrieved "
+        "documents, confidence, decision, prediction, and a faithfulness-checked "
+        "explanation (Figure 8; full transcripts in the case-study report).",
+        fig="figure8_case_study",
+        fig_cap="Figure 8. Case study: per-case confidence, routing decision, and "
+                "correctness (green=correct, red=wrong).")
+    analysis(10, "Computation analysis",
+        "Finally we quantify the compute trade-off: latency, retrieval reduction "
+        "relative to always-on retrieval, relative compute, and average prompt length "
+        "(Table 7). The arbiter must pay a parametric pass to obtain C_i and h_L, so "
+        "its advantage is fewer augmented passes and robustness, reported honestly "
+        "rather than as a uniform latency win.",
+        table="table7_computation")
 
 
 def _discussion(doc):
     D.heading(doc, "6  Discussion", level=1)
-    D.heading(doc, "6.1  Why adaptive retrieval helps", level=2)
+    D.heading(doc, "6.1  Why decision-time estimation works", level=2)
     D.para(doc,
-        "Retrieval is beneficial precisely when the parametric model is uncertain and "
-        "the retrieved context is relevant. By comparing a calibrated benefit estimate "
-        "with internal confidence, the router concentrates retrieval on inputs where "
-        "it is most likely to reduce loss and abstains where the model is already "
-        "confident, recovering most of the accuracy of always-on retrieval at a "
-        "fraction of the retrieval calls.")
-    D.heading(doc, "6.2  Failure cases", level=2)
+        "Retrieval helps when the parametric model is uncertain and the context is "
+        "relevant. The RBE captures much of this signal from pre-retrieval features, "
+        "and calibrating the utility onto the confidence scale makes the comparison in "
+        "Equation (4) meaningful. The arbiter thus concentrates retrieval where it is "
+        "predicted to reduce loss and abstains where the model is already confident.")
+    D.heading(doc, "6.2  Why this is not just adaptive RAG", level=2)
     D.para(doc,
-        "The router can err when the RBE mis-estimates benefit — for example when a "
-        "retrieved neighbour is topically similar but pragmatically misleading, or "
-        "when the parametric model is confidently wrong (high C_i, incorrect "
-        "prediction), which suppresses beneficial retrieval. The confidence-only "
-        "ablation and the regret analysis quantify these cases.")
-    D.heading(doc, "6.3  Limitations", level=2)
+        "Prior adaptive-RAG methods decide by generating, i.e., by partially "
+        "performing the inference they are trying to decide about. SMART-LLM instead "
+        "predicts retrieval benefit from cached representations and routes on a "
+        "calibrated comparison, which is what the oracle-agreement, regret, and noise-"
+        "robustness analyses are designed to substantiate.")
+    D.heading(doc, "6.3  Failure cases and limitations", level=2)
     D.para(doc,
-        "First, the ground-truth benefit is defined through a verbalizer loss and "
-        "therefore inherits the verbalizer's assumptions. Second, the router is "
-        "trained and evaluated within a dataset; cross-dataset transfer of the "
-        "calibration map is left to future work. Third, UAAS allocates rank from a "
-        "discrete adapter bucket, so capacity is quantised. We describe results as "
-        "demonstrated or validated experimentally and do not claim optimality.")
+        "The arbiter errs when the RBE mis-estimates benefit — a topically similar but "
+        "misleading neighbour, or a confidently wrong parametric answer that suppresses "
+        "beneficial retrieval; the case study surfaces both. Limitations: the benefit "
+        "signal is defined through a verbalizer loss; the calibration map is fit and "
+        "evaluated within one dataset, so cross-dataset transfer is future work; UAAS "
+        "quantises capacity to discrete ranks; and the study is single-dataset by "
+        "design, trading external breadth for internal depth.")
 
 
 def _conclusion(doc):
     D.heading(doc, "7  Conclusion", level=1)
     D.para(doc,
-        "SMART-LLM replaces static retrieval and fixed adaptation with per-input, "
-        "uncertainty-driven decisions. Confidence-Driven Knowledge Arbitration "
-        "predicts retrieval benefit and routes accordingly without double inference; "
-        "Uncertainty-Aware Adapter Scaling allocates LoRA capacity per input; and an "
-        "attribution-guided step verifies explanation faithfulness. Our experiments "
-        "provide evidence that adaptive inference can preserve accuracy while reducing "
-        "retrieval computation and can remain robust to corrupted retrieval. Future "
-        "work includes cross-dataset calibration transfer, continuous-rank adapters, "
-        "and joint training of the router and adapters.")
+        "We investigated whether retrieval benefit can be estimated at decision time "
+        "and used to arbitrate retrieval. Our focused, ten-part study on 20 Newsgroups "
+        "provides empirical evidence that a Retrieval Benefit Estimator predicts "
+        "realized loss reductions, that the resulting arbiter tracks an oracle "
+        "retrieval policy and remains robust to corrupted retrieval, and that it "
+        "preserves accuracy while substantially reducing retrieval. The framework is "
+        "presented as decision-time retrieval arbitration rather than a module "
+        "combination. Future work includes cross-dataset calibration transfer, "
+        "continuous-rank adapters, and jointly training the estimator with the "
+        "downstream policy.")
 
 
 def _references(doc):
     D.heading(doc, "References", level=1)
-    refs = [
+    for r in [
         "Lewis, P. et al. (2020). Retrieval-Augmented Generation for Knowledge-"
         "Intensive NLP Tasks. NeurIPS.",
         "Asai, A. et al. (2024). Self-RAG: Learning to Retrieve, Generate, and "
         "Critique through Self-Reflection. ICLR.",
-        "Hu, E. J. et al. (2022). LoRA: Low-Rank Adaptation of Large Language "
-        "Models. ICLR.",
-        "Houlsby, N. et al. (2019). Parameter-Efficient Transfer Learning for NLP. "
-        "ICML.",
+        "Jiang, Z. et al. (2023). Active Retrieval Augmented Generation (FLARE). EMNLP.",
+        "Hu, E. J. et al. (2022). LoRA: Low-Rank Adaptation of Large Language Models. ICLR.",
         "Guo, C. et al. (2017). On Calibration of Modern Neural Networks. ICML.",
-        "Platt, J. (1999). Probabilistic Outputs for Support Vector Machines. "
-        "Advances in Large Margin Classifiers.",
+        "Platt, J. (1999). Probabilistic Outputs for Support Vector Machines.",
         "Sundararajan, M., Taly, A., Yan, Q. (2017). Axiomatic Attribution for Deep "
         "Networks (Integrated Gradients). ICML.",
-        "Jiang, Z. et al. (2023). Active Retrieval Augmented Generation (FLARE). "
-        "EMNLP.",
         "Qwen Team (2024). Qwen2.5 Technical Report.",
-        "Xiao, S. et al. (2023). C-Pack / BGE: Packaged Resources for General "
-        "Chinese and English Embeddings.",
+        "Xiao, S. et al. (2023). C-Pack / BGE Embeddings.",
         "Johnson, J., Douze, M., Jégou, H. (2019). Billion-Scale Similarity Search "
         "with GPUs (FAISS). IEEE Big Data.",
-    ]
-    for r in refs:
+    ]:
         D.para(doc, r)
+
+
+_CAPTIONS = {
+    "table1_main": "Table 1. Main performance (clean retrieval, test split).",
+    "table2_router_oracle": "Table 2. Router vs. oracle: agreement, precision, "
+                            "recall, F1, mean regret, by pooling.",
+    "table3_rbe": "Table 3. RBE prediction quality by pooling (R^2 / MAE / Pearson).",
+    "table4_noise": "Table 4. Noise robustness across retrieval conditions.",
+    "table5_calibration": "Table 5. Calibration (ECE / Brier): probe C_i vs. LLM "
+                          "confidence.",
+    "table6_ablation": "Table 6. Module ablation (test split).",
+    "table7_computation": "Table 7. Computation: latency, retrieval reduction, "
+                          "relative compute, prompt length.",
+    "table_behavior": "Table. Retrieval behaviour (Analysis 4).",
+    "table_difficulty": "Table. Difficulty strata (Analysis 8): easy/medium/hard.",
+}
 
 
 def main():

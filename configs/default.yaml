@@ -1,12 +1,12 @@
-# SMART-LLM default config (Phase 1A, GPU machine).
-# Only keys that differ from the dataclass defaults need to appear here; this file
-# lists the important ones explicitly for transparency. Structure mirrors
-# smart_llm/config.py.
-experiment_name: phase1a_cdka
+# SMART-LLM default config — single-dataset behavioural study (RTX 4090, 24 GB).
+# Qwen2.5-7B in bf16 (~16 GB) + bge-large fit comfortably on a 4090. If VRAM is
+# tight, set llm.load_in_4bit: true (needs bitsandbytes). Only keys that differ
+# from the dataclass defaults need to appear here. Structure mirrors config.py.
+experiment_name: smart_llm_20ng
 seed: 20240517
 
 paths:
-  root: runs/phase1a
+  root: runs/20ng
 
 llm:
   name: Qwen/Qwen2.5-7B-Instruct
@@ -66,5 +66,7 @@ uaas:
 explain:
   method: integrated_gradients
   ig_steps: 32
+  ig_internal_batch: 8       # caps IG activation memory (fits 24 GB)
+  dtype: bfloat16            # fp32 7B would not fit a 4090; bf16 does
   top_k_tokens: 10
   n_samples: 200

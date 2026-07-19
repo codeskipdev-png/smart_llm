@@ -1,96 +1,102 @@
 # Reproducing SMART-LLM
 
-This file gives the exact commands, the two-stage design, the data-logging schema,
-and the resource notes needed to reproduce every number in the manuscript. **All
-heavy steps require a CUDA GPU.** Nothing in this repo ships precomputed numbers;
-the manuscript is generated from the CSVs you produce.
+A **focused, single-dataset behavioural study** of decision-time retrieval
+arbitration on 20 Newsgroups. Every number in the manuscript is generated from
+per-sample logs — nothing is precomputed or invented. **Heavy steps need a CUDA
+GPU (target: RTX 4090, 24 GB).**
 
 ---
 
-## 0. Environment
+## 0. Environment (RTX 4090)
 
 ```bash
-# 1) install a CUDA build of torch that matches your driver, e.g. CUDA 12.1:
-pip install torch --index-url https://download.pytorch.org/whl/cu121
-# 2) the rest:
+pip install torch --index-url https://download.pytorch.org/whl/cu121   # match your CUDA
 pip install -r requirements.txt        # or: pip install -e .
 ```
 
-Backbone download: `Qwen/Qwen2.5-7B-Instruct` (~16 GB bf16). Set
-`llm.load_in_4bit=true` (needs `bitsandbytes`) if VRAM < 20 GB. Gated models
-(Llama-3.1) require `huggingface-cli login`.
+`Qwen/Qwen2.5-7B-Instruct` in bf16 (~16 GB) + `bge-large` fit comfortably in
+24 GB. If VRAM is tight set `--set llm.load_in_4bit=true` (needs `bitsandbytes`).
+Attribution runs the 7B in bf16 with batched IG steps (`explain.ig_internal_batch`)
+so it also fits 24 GB.
 
-Fast end-to-end sanity check (0.5B backbone, tiny data — runs on a small GPU):
+Fast sanity check (0.5B model, tiny data):
 ```bash
 bash scripts/run_all.sh configs/debug.yaml 20newsgroups
 ```
 
 ---
 
-## 1. Two-stage design (why it is cheap to iterate)
+## 1. Execution order (copy/paste)
 
-The 7B forward passes are isolated in **Stage 1** and cached. Everything else
-(**Stage 2** CDKA training, ablations, analysis, paper) reads the cache, so you
-re-train/ablate the router in seconds without touching the LLM.
-
-| Stage | Script | Cost | Produces |
-|------|--------|------|----------|
-| 1 | `smart_llm.experiments.generate_features` | heavy (GPU) | `runs/*/cache/<dataset>/` |
-| 2 | `smart_llm.experiments.train_cdka` | light | `results/master_<dataset>.csv`, `cdka_metrics_<dataset>.json` |
-| 2b | `smart_llm.experiments.ablation` | light | `tables/table6_rus_ablation_*.csv` |
-| 3 | `smart_llm.analysis.make_all` | light | `tables/*.csv`, `figures/*.png,pdf` |
-| 4 | `smart_llm.paper.make_manuscript` / `make_supplementary` | light | `paper/*.docx` |
-
-Per-stage commands (Phase-1A):
 ```bash
 CFG=configs/default.yaml ; DS=20newsgroups
+
+# --- Stage 1 (HEAVY, GPU): frozen features + ground-truth benefit + timings ---
 python -m smart_llm.experiments.generate_features --config $CFG --dataset $DS
+
+# --- Stage 2 (light): CDKA training -> master CSV + metrics JSON ---
 python -m smart_llm.experiments.train_cdka        --config $CFG --dataset $DS
+
+# --- Module ablation (Analysis 7 -> Table 6 / Figure 7) ---
 python -m smart_llm.experiments.ablation          --config $CFG --dataset $DS
+
+# --- Qualitative case study (Analysis 9 -> Figure 8, case_study.md) [uses LLM] ---
+python -m smart_llm.experiments.case_study        --config $CFG --dataset $DS
+
+# --- Supporting Contribution 2: UAAS (adaptive LoRA rank) [uses LLM] ---
+python -m smart_llm.experiments.train_uaas        --config $CFG --dataset $DS --train-samples 1000
+
+# --- Supporting Contribution 3: explanation verification [uses LLM] ---
+python -m smart_llm.experiments.explain_verify    --config $CFG --dataset $DS
+
+# --- Tables (1-7 + behaviour + difficulty) and Figures (1-8) ---
 python -m smart_llm.analysis.make_all             --config $CFG --dataset $DS
+
+# --- Manuscript + supplementary (numbers pulled from the CSVs) ---
 python -m smart_llm.paper.make_manuscript         --config $CFG --dataset $DS
 python -m smart_llm.paper.make_supplementary      --config $CFG --dataset $DS
 ```
-or just `bash scripts/run_phase1a.sh $CFG $DS`.
 
-Contributions 2 & 3 (Phase 2):
-```bash
-python -m smart_llm.experiments.train_uaas     --config $CFG --dataset $DS --train-samples 1000
-python -m smart_llm.experiments.explain_verify --config $CFG --dataset $DS
-```
+One-liners:
+* Core study (through the paper, incl. case study): `bash scripts/run_phase1a.sh $CFG $DS`
+* Everything (adds UAAS + explanation verification): `bash scripts/run_all.sh $CFG $DS`
 
-Other datasets: `--dataset {agnews, tweeteval, financial_phrasebank, pubmed}`.
-Secondary backbone: `--config configs/llama.yaml`.
+Only `generate_features` is expensive. Everything else consumes the cache, so you
+can re-run CDKA/ablation/analysis/paper in seconds. Use `--limit N` on Stage 1 for
+a dry run; lower `data.max_eval` to shorten a full run.
 
 ---
 
-## 2. Which experiment maps to which output
+## 2. The ten analyses -> outputs
 
-* **Experiment 1 — pooling** (last / mean / attention): Tables 2 & 5, Figure 2.
-  Driven by `cdka_metrics_*.json` (RBE R², routing agreement) and the master CSV.
-* **Experiment 2 — retrieval conditions** (clean / random / adversarial): Table 3,
-  Figure 3. The frozen router (fit on clean) is applied to every condition.
-* **Experiment 3 — routing** (No-retrieval / Always-RAG / SMART): Tables 1 & 4,
-  Figures 4 & 5.
-* **Router-signal ablation**: Table 6 (`ablation.py`).
-* **UAAS**: `table_uaas_*.csv`. **Explanation verification**: `table_explain_*.csv`.
+| # | Analysis | Evidence |
+|---|----------|----------|
+| 1 | Overall performance (acc / macro P,R,F1 / latency / freq) | Table 1 |
+| 2 | Router vs oracle (agreement / P / R / F1 / regret) | Table 2, Figure 2 |
+| 3 | RBE prediction (R² / MAE / Pearson / residuals) | Table 3, Figure 4 |
+| 4 | Retrieval behaviour (freq / demos / prompt length / margins) | Table (behaviour), Figure 5 |
+| 5 | Noise robustness (clean / random / adversarial) | Table 4, Figure 6 |
+| 6 | Calibration (ECE / Brier / reliability) | Table 5, Figure 3 |
+| 7 | Ablation (− RBE / − Calibration / references) | Table 6, Figure 7 |
+| 8 | Difficulty (easy / medium / hard) | Table (difficulty) |
+| 9 | Qualitative case study (5 success + 5 failure) | Figure 8, `results/case_study_*.md` |
+| 10 | Computation (latency / retrieval reduction / compute / tokens) | Table 7 |
+
+Systems compared throughout: **No retrieval**, **Always RAG**, **SMART-LLM**.
 
 ---
 
-## 3. Ground-truth generation (offline supervision)
-
-For each sample, Stage 1 runs the frozen LLM without and with retrieval:
+## 3. Ground-truth benefit (offline supervision only)
 
 ```
 B_true = (Loss_p - Loss_r) / (|Loss_p| + eps)      eps = 1e-6
 oracle = 1[Loss_r < Loss_p]
+regret = chosen_loss - min(Loss_p, Loss_r)
 ```
 
-`Loss_p`, `Loss_r` are cross-entropies of the gold label under the letter
-verbalizer (single forward pass each). The router is evaluated by: RBE **R²** vs
-`B_true`; router **oracle-agreement**; and **regret = chosen_loss − min(Loss_p,
-Loss_r)**. The retrieval-augmented pass is used here for supervision only — at
-deployment the router never runs it to decide (no double inference).
+`Loss_p`/`Loss_r` are label cross-entropies under the letter verbalizer (one
+forward pass each). The retrieval-augmented pass is used **only** to build this
+supervision; the deployed arbiter never runs it to decide (no double inference).
 
 ---
 
@@ -98,35 +104,35 @@ deployment the router never runs it to decide (no double inference).
 
 One row per (pooling × retrieval-condition × sample):
 
-`id, dataset, label, pooling, condition, split, C_i, entropy, conf_llm,
-entropy_llm, sim, B_pred, B_true, RUS, calibrated_RUS, delta_C, smart_decision,
-oracle_decision, loss_without_retrieval, loss_with_retrieval, pred_p, pred_r,
-smart_pred, regret, t_p, t_r`
+`id, dataset, label, pooling, condition, split, C_i, entropy, probe_pred,
+conf_llm, entropy_llm, sim, B_pred, B_true, RUS, calibrated_RUS, delta_C,
+smart_decision, oracle_decision, loss_without_retrieval, loss_with_retrieval,
+pred_p, pred_r, smart_pred, regret, t_p, t_r, n_tokens_p, n_tokens_r`
 
-Every table and figure is derived from this file plus `cdka_metrics_*.json`
-(which additionally stores amortised embedding/index/search timings). If any
-result file is missing, the manuscript generator emits `[[TBD-from-run]]` rather
-than inventing a value.
+Amortised embedding/index/search timings live in `cdka_metrics_<dataset>.json`.
+Missing result files render as `[[TBD-from-run]]` in the manuscript — never faked.
 
 ---
 
-## 5. Determinism & resources
+## 5. Determinism, resources, honesty notes
 
-* One global seed (`seed:`) drives numpy/torch/splits. Set
-  `CUBLAS_WORKSPACE_CONFIG=:4096:8` is done automatically for deterministic matmul.
-* Stage 1 rough cost: `n_eval × (1 + |conditions|)` 7B forward passes
-  (defaults: 1500 × 4 = 6000). Budget accordingly; use `--limit N` to dry-run.
-* Stage 2/analysis/paper run on CPU in seconds-to-minutes.
+* One seed drives numpy/torch/splits; deterministic matmul is enabled.
+* Stage-1 cost ≈ `max_eval × (1 + |conditions|)` 7B passes (defaults 1500 × 4).
+* **Latency is reported honestly:** SMART pays a parametric pass to obtain `C_i`
+  and `h_L`, so its advantage is *fewer augmented passes and robustness*, not a
+  uniform latency win (Table 7 / Figure 6 make this explicit).
+* `pubmed` uses HF id `armanc/pubmed-rct20k`; if it 404s in your cache, edit the
+  preset in `smart_llm/data/datasets.py`. (Not needed for the 20NG study.)
 
 ---
 
-## 6. Tests (run anywhere, no GPU)
+## 6. Tests (no GPU)
 
 ```bash
-pip install pytest
-pytest -q
+pip install pytest && pytest -q
 ```
 
-The suite validates the pure-logic components (metrics, pooling, probe, RBE,
-calibration, router, UAAS rank schedule, config) and runs a full **synthetic**
-Stage-2 → master-CSV → tables integration without any LLM or FAISS.
+Validates the pure-logic components (metrics incl. macro P/R/F1, Brier,
+reliability, difficulty; probe, RBE, calibration, router, UAAS schedule, config)
+and runs a full **synthetic** Stage-2 → master-CSV → tables/figures integration
+with no LLM or FAISS.

@@ -27,7 +27,7 @@ META_COLUMNS = ["id", "label", "pred_p", "loss_p", "conf_llm", "entropy_llm",
                 "n_prompt_tokens", "t_p"]
 
 COND_KEYS = ("centroid", "sim", "loss_r", "pred_r", "btrue", "oracle",
-             "retr_idx", "demo_label_ids", "t_r")
+             "retr_idx", "demo_label_ids", "t_r", "n_tokens_r")
 
 
 class FeatureWriter:
@@ -88,7 +88,8 @@ class FeatureWriter:
                      oracle=np.asarray(b["oracle"], dtype=np.int64),
                      retr_idx=np.asarray(b["retr_idx"], dtype=np.int64),
                      demo_label_ids=np.asarray(b["demo_label_ids"], dtype=np.int64),
-                     t_r=np.asarray(b["t_r"], dtype=np.float32))
+                     t_r=np.asarray(b["t_r"], dtype=np.float32),
+                     n_tokens_r=np.asarray(b["n_tokens_r"], dtype=np.int64))
         self._all_scalars.extend(self._buf_scalars)
         self._shard_sizes.append(len(self._buf_scalars))
 

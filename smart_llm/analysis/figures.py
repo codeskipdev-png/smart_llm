@@ -1,13 +1,16 @@
-"""Generate the paper figures from the master results CSV.
+"""Manuscript figures — each answers one scientific question, no decoration.
 
-Figure 1  SMART-LLM architecture (schematic; drawn, not data)
-Figure 2  RBE prediction quality        (B_true vs B_pred scatter + R2)
-Figure 3  Retrieval robustness curve     (accuracy & retrieval-freq vs condition)
-Figure 4  Accuracy-computation Pareto    (threshold sweep on ΔC + baselines)
-Figure 5  Uncertainty vs retrieval freq. (binned U(x) -> mean decision)
+F1 architecture              (schematic)                      : what is SMART?
+F2 router decision process   C_i vs calibrated RUS + boundary : how does it decide?
+F3 reliability diagram       confidence vs accuracy + ECE     : is C_i calibrated?
+F4 RBE prediction + residual B_pred vs B_true, residuals      : can benefit be predicted?
+F5 routing-margin histogram  ΔC distribution + threshold      : how often / how decisively?
+F6 noise robustness          acc + freq across conditions     : does it suppress bad retrieval?
+F7 ablation                  agreement/acc per variant        : what does each module add?
+F8 case study                per-case C_i / decision / correct: why does it succeed/fail?
 
-All figures 2-5 are computed from ``results/master_<dataset>.csv`` — no invented
-data. Saved as both PNG and PDF into ``figures_dir``.
+Figures 2-8 are computed from results/master_<dataset>.csv (+ ablation / case-study
+CSVs). Saved as PNG and PDF.
 """
 from __future__ import annotations
 
@@ -18,7 +21,6 @@ import numpy as np
 import pandas as pd
 
 from ..config import Config
-from ..cdka.router import uncertainty
 from . import metrics as M
 
 
@@ -34,7 +36,7 @@ def _mpl():
     return plt
 
 
-def _save(plt, cfg: Config, name: str) -> str:
+def _save(plt, cfg, name) -> str:
     base = Path(cfg.paths.figures_dir) / f"{name}_{cfg.data.dataset}"
     plt.savefig(str(base) + ".png", bbox_inches="tight")
     plt.savefig(str(base) + ".pdf", bbox_inches="tight")
@@ -48,8 +50,7 @@ def _slice(df, pooling, condition, split="test"):
 
 
 # --------------------------------------------------------------------------- #
-def figure1_architecture(cfg: Config) -> str:
-    """Self-contained schematic of the SMART-LLM inference path."""
+def figure1_architecture(cfg) -> str:
     plt = _mpl()
     from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
     fig, ax = plt.subplots(figsize=(10, 5.2))
@@ -61,46 +62,105 @@ def figure1_architecture(cfg: Config) -> str:
         ax.text(x + w / 2, y + h / 2, text, ha="center", va="center", fontsize=9)
 
     def arrow(x1, y1, x2, y2):
-        ax.add_patch(FancyArrowPatch((x1, y1), (x2, y2),
-                     arrowstyle="-|>", mutation_scale=12, color="#555", lw=1.2))
+        ax.add_patch(FancyArrowPatch((x1, y1), (x2, y2), arrowstyle="-|>",
+                     mutation_scale=12, color="#555", lw=1.2))
 
     box(0.2, 2.4, 1.6, 1.2, "Input x", "#eef3fb")
-    box(2.2, 3.4, 2.2, 1.2, "Frozen LLM\n(no-retrieval pass)\n-> h_L, Loss_p", "#dfe9f7")
+    box(2.2, 3.4, 2.2, 1.2, "Frozen LLM\n(parametric pass)\n-> h_L, C_i, Loss_p", "#dfe9f7")
     box(2.2, 1.2, 2.2, 1.0, "FAISS retrieval\n-> K, mu_K, sim", "#f7efdf")
     box(4.8, 3.6, 1.9, 1.0, "Confidence probe\nC_i = max softmax", "#e7f7df")
-    box(4.8, 1.4, 1.9, 1.0, "RBE\nB_pred", "#e7f7df")
-    box(7.0, 2.4, 1.4, 1.2, "Router\nΔC = cal(RUS) - C_i", "#f7dfe7")
-    box(8.7, 3.4, 1.1, 1.0, "Trust\ninternal", "#eef3fb")
-    box(8.7, 1.4, 1.1, 1.0, "Use\nretrieval", "#f7efdf")
+    box(4.8, 1.4, 1.9, 1.0, "RBE  (key)\nB_pred", "#d8f0cf")
+    box(7.0, 2.4, 1.5, 1.2, "Arbiter\nΔC = cal(RUS) - C_i", "#f7dfe7")
+    box(8.8, 3.4, 1.0, 1.0, "Trust\ninternal", "#eef3fb")
+    box(8.8, 1.4, 1.0, 1.0, "Retrieve", "#f7efdf")
 
     arrow(1.8, 3.0, 2.2, 3.9); arrow(1.8, 2.9, 2.2, 1.8)
     arrow(4.4, 4.0, 4.8, 4.1); arrow(4.4, 1.7, 4.8, 1.9)
-    arrow(6.7, 4.1, 7.4, 3.6); arrow(6.7, 1.9, 7.4, 2.6)
-    arrow(8.4, 3.2, 8.7, 3.6); arrow(8.4, 2.6, 8.7, 2.0)
-    ax.text(5.0, 5.6, "SMART-LLM: Confidence-Driven Knowledge Arbitration",
+    arrow(6.7, 4.1, 7.5, 3.6); arrow(6.7, 1.9, 7.5, 2.6)
+    arrow(8.5, 3.2, 8.8, 3.6); arrow(8.5, 2.6, 8.8, 2.0)
+    ax.text(5.0, 5.6, "SMART-LLM: decision-time retrieval arbitration",
             ha="center", fontsize=12, fontweight="bold")
-    ax.text(7.7, 0.7, "no double inference: retrieval pass runs only if ΔC>0",
+    ax.text(7.75, 0.7, "retrieval executed only if ΔC>0 (no double inference)",
             ha="center", fontsize=8, style="italic", color="#666")
     return _save(plt, cfg, "figure1_architecture")
 
 
-def figure2_rbe(cfg: Config, df: pd.DataFrame) -> str:
+def figure2_router_decision(cfg, df) -> str:
+    plt = _mpl()
+    d = _slice(df, cfg.pooling.default, "clean")
+    ci = d.C_i.to_numpy(); cr = d.calibrated_RUS.to_numpy()
+    dec = d.smart_decision.to_numpy()
+    fig, ax = plt.subplots(figsize=(5.4, 5))
+    ax.scatter(ci[dec == 0], cr[dec == 0], s=12, alpha=0.5, color="#48c",
+               label="trust internal (ΔC≤0)")
+    ax.scatter(ci[dec == 1], cr[dec == 1], s=12, alpha=0.5, color="#e07",
+               label="retrieve (ΔC>0)")
+    lim = [0, 1]
+    ax.plot(lim, lim, "k--", lw=1, label="decision boundary ΔC=0")
+    ax.set_xlabel("internal confidence  C_i")
+    ax.set_ylabel("calibrated retrieval utility  cal(RUS)")
+    ax.set_xlim(lim); ax.set_ylim(lim)
+    ax.set_title("Router decision process")
+    ax.legend(frameon=False, fontsize=8, loc="lower right")
+    return _save(plt, cfg, "figure2_router_decision")
+
+
+def figure3_reliability(cfg, df) -> str:
+    plt = _mpl()
+    d = _slice(df, cfg.pooling.default, "clean")
+    y = d.label.to_numpy()
+    correct = (d.probe_pred.to_numpy() == y).astype(float)
+    conf = d.C_i.to_numpy()
+    bc, ba, cnt = M.reliability_curve(conf, correct, n_bins=10)
+    ece = M.expected_calibration_error(conf, correct)
+    fig, ax = plt.subplots(figsize=(5, 5))
+    ax.plot([0, 1], [0, 1], "k--", lw=1, label="perfect calibration")
+    ax.plot(bc, ba, "o-", color="#48c", label="probe C_i")
+    ax.bar(bc, ba, width=0.08, alpha=0.15, color="#48c")
+    ax.set_xlabel("confidence"); ax.set_ylabel("empirical accuracy")
+    ax.set_xlim(0, 1); ax.set_ylim(0, 1)
+    ax.set_title(f"Reliability diagram (ECE = {ece:.3f})")
+    ax.legend(frameon=False, loc="upper left")
+    return _save(plt, cfg, "figure3_reliability")
+
+
+def figure4_rbe(cfg, df) -> str:
     plt = _mpl()
     d = _slice(df, cfg.pooling.default, "clean")
     bt, bp = d.B_true.to_numpy(), d.B_pred.to_numpy()
-    r2 = M.r2_score(bp, bt); r = M.pearson_r(bp, bt)
-    fig, ax = plt.subplots(figsize=(5, 5))
-    ax.scatter(bt, bp, s=10, alpha=0.4, edgecolor="none")
+    r2, r = M.r2_score(bp, bt), M.pearson_r(bp, bt)
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(9.5, 4.4))
     lim = [min(bt.min(), bp.min()), max(bt.max(), bp.max())]
-    ax.plot(lim, lim, "k--", lw=1, label="ideal")
-    ax.set_xlabel("B_true  (ground-truth retrieval benefit)")
-    ax.set_ylabel("B_pred  (RBE estimate)")
-    ax.set_title(f"RBE prediction quality\n$R^2$={r2:.3f}, r={r:.3f}")
-    ax.legend(frameon=False)
-    return _save(plt, cfg, "figure2_rbe")
+    a1.scatter(bt, bp, s=10, alpha=0.4, edgecolor="none")
+    a1.plot(lim, lim, "k--", lw=1)
+    a1.set_xlabel("B_true"); a1.set_ylabel("B_pred")
+    a1.set_title(f"RBE prediction ($R^2$={r2:.3f}, r={r:.3f})")
+    resid = bp - bt
+    a2.scatter(bt, resid, s=10, alpha=0.4, edgecolor="none", color="#c44")
+    a2.axhline(0, color="k", lw=1, ls="--")
+    a2.set_xlabel("B_true"); a2.set_ylabel("residual (B_pred - B_true)")
+    a2.set_title(f"Residuals (MAE={M.mae(bp, bt):.3f})")
+    return _save(plt, cfg, "figure4_rbe")
 
 
-def figure3_robustness(cfg: Config, df: pd.DataFrame) -> str:
+def figure5_margin_hist(cfg, df) -> str:
+    plt = _mpl()
+    d = _slice(df, cfg.pooling.default, "clean")
+    delta = d.delta_C.to_numpy()
+    freq = float(np.mean(d.smart_decision.to_numpy()))
+    fig, ax = plt.subplots(figsize=(6, 4.2))
+    ax.hist(delta[delta <= 0], bins=30, color="#48c", alpha=0.7,
+            label="trust internal")
+    ax.hist(delta[delta > 0], bins=30, color="#e07", alpha=0.7, label="retrieve")
+    ax.axvline(0, color="k", lw=1.2, ls="--", label="threshold ΔC=0")
+    ax.set_xlabel("routing margin  ΔC = cal(RUS) - C_i")
+    ax.set_ylabel("count")
+    ax.set_title(f"Routing-margin distribution (retrieval freq. = {freq:.2f})")
+    ax.legend(frameon=False, fontsize=8)
+    return _save(plt, cfg, "figure5_margin_hist")
+
+
+def figure6_noise(cfg, df) -> str:
     plt = _mpl()
     pool = cfg.pooling.default
     conds = sorted(df.condition.unique())
@@ -110,9 +170,8 @@ def figure3_robustness(cfg: Config, df: pd.DataFrame) -> str:
         smart_acc.append(M.accuracy(d.smart_pred.to_numpy(), y))
         rag_acc.append(M.accuracy(d.pred_r.to_numpy(), y))
         freq.append(M.retrieval_frequency(d.smart_decision.to_numpy()))
-    x = np.arange(len(conds))
+    x = np.arange(len(conds)); w = 0.35
     fig, ax1 = plt.subplots(figsize=(6.5, 4.2))
-    w = 0.35
     ax1.bar(x - w / 2, rag_acc, w, label="Always-RAG acc", color="#c44")
     ax1.bar(x + w / 2, smart_acc, w, label="SMART acc", color="#48c")
     ax1.set_xticks(x); ax1.set_xticklabels(conds)
@@ -120,82 +179,68 @@ def figure3_robustness(cfg: Config, df: pd.DataFrame) -> str:
     ax2 = ax1.twinx(); ax2.grid(False)
     ax2.plot(x, freq, "o-", color="#2a2", label="SMART retrieval freq.")
     ax2.set_ylabel("SMART retrieval frequency"); ax2.set_ylim(0, 1)
-    lines = ax1.get_legend_handles_labels()[0] + ax2.get_legend_handles_labels()[0]
-    labels = ax1.get_legend_handles_labels()[1] + ax2.get_legend_handles_labels()[1]
-    ax1.legend(lines, labels, frameon=False, loc="lower left", fontsize=8)
+    l1, la1 = ax1.get_legend_handles_labels()
+    l2, la2 = ax2.get_legend_handles_labels()
+    ax1.legend(l1 + l2, la1 + la2, frameon=False, loc="lower left", fontsize=8)
     ax1.set_title("Retrieval robustness across conditions")
-    return _save(plt, cfg, "figure3_robustness")
+    return _save(plt, cfg, "figure6_noise")
 
 
-def figure4_pareto(cfg: Config, df: pd.DataFrame) -> str:
-    """Accuracy-vs-latency frontier by sweeping the routing threshold on ΔC."""
+def figure7_ablation(cfg) -> str:
     plt = _mpl()
-    d = _slice(df, cfg.pooling.default, "clean")
-    y = d.label.to_numpy()
-    delta = d.delta_C.to_numpy()
-    pred_p, pred_r = d.pred_p.to_numpy(), d.pred_r.to_numpy()
-    t_p, t_r = d.t_p.to_numpy(), d.t_r.to_numpy()
-
-    taus = np.quantile(delta, np.linspace(0, 1, 21))
-    accs, lats, freqs = [], [], []
-    for tau in taus:
-        dec = (delta > tau).astype(int)
-        pred = np.where(dec == 1, pred_r, pred_p)
-        accs.append(M.accuracy(pred, y))
-        lats.append(float(np.mean(t_p + dec * t_r)) * 1e3)
-        freqs.append(float(np.mean(dec)))
-
-    fig, ax = plt.subplots(figsize=(6, 4.4))
-    ax.plot(lats, accs, "-", color="#48c", alpha=0.6, label="SMART frontier (ΔC sweep)")
-    sc = ax.scatter(lats, accs, c=freqs, cmap="viridis", s=28, zorder=3)
-    fig.colorbar(sc, ax=ax, label="retrieval frequency")
-    # baselines
-    ax.scatter([np.mean(t_p) * 1e3], [M.accuracy(pred_p, y)], marker="s",
-               s=70, color="#888", label="No retrieval", zorder=4)
-    ax.scatter([np.mean(t_r) * 1e3], [M.accuracy(pred_r, y)], marker="^",
-               s=70, color="#c44", label="Always RAG", zorder=4)
-    ax.set_xlabel("Latency (ms/sample, LLM passes)")
-    ax.set_ylabel("Accuracy")
-    ax.set_title("Accuracy-computation Pareto frontier")
-    ax.legend(frameon=False, fontsize=8, loc="lower right")
-    return _save(plt, cfg, "figure4_pareto")
+    p = Path(cfg.paths.tables_dir) / f"ablation_{cfg.data.dataset}.csv"
+    if not p.exists():
+        return ""
+    a = pd.read_csv(p)
+    cols = [c for c in ("oracle_agreement", "accuracy") if c in a.columns]
+    if not cols:
+        return ""
+    x = np.arange(len(a)); w = 0.8 / max(1, len(cols))
+    fig, ax = plt.subplots(figsize=(max(6, 1.1 * len(a)), 4.4))
+    for i, c in enumerate(cols):
+        ax.bar(x + i * w, a[c].to_numpy(), w, label=c.replace("_", " "))
+    ax.set_xticks(x + w * (len(cols) - 1) / 2)
+    ax.set_xticklabels(a["Variant"].tolist(), rotation=30, ha="right", fontsize=8)
+    ax.set_ylabel("score"); ax.set_ylim(0, 1)
+    ax.set_title("Ablation: contribution of each routing component")
+    ax.legend(frameon=False, fontsize=8)
+    return _save(plt, cfg, "figure7_ablation")
 
 
-def figure5_uncertainty(cfg: Config, df: pd.DataFrame, n_bins: int = 8) -> str:
+def figure8_case_study(cfg) -> str:
     plt = _mpl()
-    d = _slice(df, cfg.pooling.default, "clean")
-    u = uncertainty(d.entropy.to_numpy(), d.C_i.to_numpy(),
-                    cfg.router.lam_uncertainty)
-    dec = d.smart_decision.to_numpy()
-    orc = d.oracle_decision.to_numpy()
-    bins = np.linspace(u.min(), u.max() + 1e-9, n_bins + 1)
-    centers, sm_freq, or_freq = [], [], []
-    for lo, hi in zip(bins[:-1], bins[1:]):
-        m = (u >= lo) & (u < hi)
-        if not np.any(m):
-            continue
-        centers.append((lo + hi) / 2)
-        sm_freq.append(float(dec[m].mean()))
-        or_freq.append(float(orc[m].mean()))
-    fig, ax = plt.subplots(figsize=(6, 4.2))
-    ax.plot(centers, sm_freq, "o-", color="#48c", label="SMART retrieval freq.")
-    ax.plot(centers, or_freq, "s--", color="#2a2", label="Oracle retrieval freq.")
-    ax.set_xlabel("Uncertainty  U(x)")
-    ax.set_ylabel("Retrieval frequency")
-    ax.set_ylim(0, 1)
-    ax.set_title("Uncertainty vs retrieval frequency")
-    ax.legend(frameon=False)
-    return _save(plt, cfg, "figure5_uncertainty")
+    p = Path(cfg.paths.results_dir) / f"case_study_{cfg.data.dataset}.csv"
+    if not p.exists():
+        return ""
+    c = pd.read_csv(p)
+    y = np.arange(len(c))
+    colors = ["#2a2" if v else "#c44" for v in c["correct"].to_numpy()]
+    fig, ax = plt.subplots(figsize=(7, 0.5 * len(c) + 1.5))
+    ax.barh(y, c["C_i"].to_numpy(), color=colors, alpha=0.8)
+    for i, row in c.reset_index().iterrows():
+        tag = "RET" if int(row["smart_decision"]) == 1 else "INT"
+        ax.text(row["C_i"] + 0.01, i, f"{tag} | pred={int(row['smart_pred'])} "
+                f"gold={int(row['label'])}", va="center", fontsize=7)
+    ax.set_yticks(y)
+    ax.set_yticklabels([f"{r['category']}:{r['id']}" for _, r in c.iterrows()],
+                       fontsize=7)
+    ax.set_xlabel("confidence  C_i"); ax.set_xlim(0, 1.3)
+    ax.set_title("Case study (green=correct, red=wrong; RET=retrieve, INT=internal)")
+    return _save(plt, cfg, "figure8_case_study")
 
 
 def build_all(cfg: Config, df: pd.DataFrame = None) -> List[str]:
     from .tables import load_master
     if df is None:
         df = load_master(cfg)
-    return [
+    figs = [
         figure1_architecture(cfg),
-        figure2_rbe(cfg, df),
-        figure3_robustness(cfg, df),
-        figure4_pareto(cfg, df),
-        figure5_uncertainty(cfg, df),
+        figure2_router_decision(cfg, df),
+        figure3_reliability(cfg, df),
+        figure4_rbe(cfg, df),
+        figure5_margin_hist(cfg, df),
+        figure6_noise(cfg, df),
+        figure7_ablation(cfg),
+        figure8_case_study(cfg),
     ]
+    return [f for f in figs if f]

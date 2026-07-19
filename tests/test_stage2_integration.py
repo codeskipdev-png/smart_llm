@@ -47,7 +47,8 @@ def _build_cache(cfg):
                 oracle=int(loss_r < scalars["loss_p"]),
                 retr_idx=rng.integers(0, 100, size=K).astype(np.int64),
                 demo_label_ids=rng.integers(0, NCLS, size=K).astype(np.int64),
-                t_r=float(rng.uniform(0.08, 0.15)))
+                t_r=float(rng.uniform(0.08, 0.15)),
+                n_tokens_r=int(rng.integers(120, 400)))
         w.add(scalars, vecs, tokens, conds)
     w.set_timing({"embed_query_time": 1.0, "search_time": {c: 0.1 for c in CONDS},
                   "n_eval_for_amortization": N})
@@ -99,4 +100,6 @@ def test_analysis_tables_build(tmp_path):
     tbls = tables.build_all(cfg)
     assert len(tbls["table1_main"]) == 3           # 3 systems
     assert "Accuracy" in tbls["table1_main"].columns
-    assert len(tbls["table3_robustness"]) == len(CONDS)
+    assert len(tbls["table4_noise"]) == len(CONDS)
+    assert len(tbls["table_difficulty"]) >= 1      # difficulty tiers
+    assert "Precision" in tbls["table2_router_oracle"].columns

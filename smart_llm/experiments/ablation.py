@@ -1,17 +1,18 @@
-"""Router-signal ablation (supplementary Table 6).
+"""Ablation (Analysis 7): isolate the contribution of each decision-time module.
 
-Isolates the contribution of each routing signal, using the cached features and
-the default pooling. All variants share the same probe + RBE; only the routing
-rule changes:
+All variants share the same frozen features, confidence probe, and RBE; only the
+arbitration rule changes, so differences are attributable to the ablated module:
 
-  * SMART (full)        : RUS = alpha*sim + beta*B_pred  (tuned)
-  * B_pred only         : alpha = 0
-  * sim only            : beta  = 0
-  * Confidence-only     : retrieve iff C_i < tau  (tau tuned on val)
-  * Always / Never RAG  : trivial references
-  * Oracle              : retrieve iff Loss_r < Loss_p  (upper bound)
+  * SMART (full)        RUS = alpha*sim + beta*B_pred, Platt-calibrated
+  * - RBE               drop the predicted-benefit term (similarity-only routing)
+  * - Calibration       replace Platt with an uncalibrated (min-max) map
+  * Confidence-only     retrieve iff C_i < tau (no retrieval-utility signal)
+  * Always / Never RAG  trivial references
+  * Oracle              retrieve iff Loss_r < Loss_p (upper bound)
 
-Reports oracle agreement, mean regret, and end-task accuracy on the test split.
+(UAAS is ablated separately in train_uaas: adaptive rank vs. static LoRA.)
+Reports oracle agreement + precision/recall/F1 of the retrieve decision, mean
+regret, end-task accuracy, and retrieval frequency on the test split.
 """
 from __future__ import annotations
 
@@ -32,10 +33,12 @@ from .train_cdka import _select_device, _split, _train_pooling
 _log = get_logger("smart_llm.ablation")
 
 
-def _eval_decision(decision, oracle, loss_p, loss_r, pred_p, pred_r, label):
+def _eval(decision, oracle, loss_p, loss_r, pred_p, pred_r, label):
     smart_pred = np.where(decision == 1, pred_r, pred_p)
+    b = M.binary_prf(decision, oracle)
     return {
         "oracle_agreement": M.routing_agreement(decision, oracle),
+        "precision": b["precision"], "recall": b["recall"], "f1": b["f1"],
         "mean_regret": M.mean_regret(decision, loss_p, loss_r),
         "accuracy": M.accuracy(smart_pred, label),
         "retrieval_freq": M.retrieval_frequency(decision),
@@ -61,29 +64,30 @@ def run(cfg, device="auto") -> pd.DataFrame:
     ci = art.ci
     bpred = art.rbe.predict(np.concatenate([art.pooled, clean["centroid"]], axis=1))
 
-    def router_variant(fixed_alpha):
+    def router_decision(fixed_alpha=None, calibration=None):
+        saved = cfg.router.calibration
+        if calibration is not None:
+            cfg.router.calibration = calibration
         r = Router(cfg).fit(clean["sim"][va], bpred[va], ci[va], oracle[va],
                             loss_p[va], loss_r[va], fixed_alpha=fixed_alpha)
+        cfg.router.calibration = saved
         return r.predict(clean["sim"], bpred, ci)["decision"]
 
     rows = []
 
     def add(name, decision):
-        m = _eval_decision(decision[te], oracle[te], loss_p[te], loss_r[te],
-                           pred_p[te], pred_r[te], labels[te])
-        rows.append({"Variant": name, **m})
+        rows.append({"Variant": name, **_eval(
+            decision[te], oracle[te], loss_p[te], loss_r[te],
+            pred_p[te], pred_r[te], labels[te])})
 
     add("SMART (full)", art.router.predict(clean["sim"], bpred, ci)["decision"])
-    add("B_pred only (alpha=0)", router_variant(0.0))
-    add("sim only (beta=0)", router_variant(1.0))
+    add("- RBE (similarity only)", router_decision(fixed_alpha=1.0))
+    add("- Calibration (raw RUS)", router_decision(calibration="minmax"))
 
-    # confidence-only: retrieve iff C_i < tau, tau tuned on val for agreement
+    # confidence-only: retrieve iff C_i < tau (tau tuned on val for agreement)
     taus = np.quantile(ci[va], np.linspace(0.05, 0.95, 19))
-    best_tau, best_agree = taus[0], -1
-    for tau in taus:
-        agree = M.routing_agreement((ci[va] < tau).astype(int), oracle[va])
-        if agree > best_agree:
-            best_agree, best_tau = agree, tau
+    best_tau = max(taus, key=lambda t: M.routing_agreement(
+        (ci[va] < t).astype(int), oracle[va]))
     add(f"Confidence-only (C_i<{best_tau:.2f})", (ci < best_tau).astype(int))
 
     add("Always RAG", np.ones(n, dtype=int))
@@ -91,20 +95,19 @@ def run(cfg, device="auto") -> pd.DataFrame:
     add("Oracle (upper bound)", oracle.astype(int))
 
     df = pd.DataFrame(rows)
-    out = f"{cfg.paths.tables_dir}/table6_rus_ablation_{cfg.data.dataset}.csv"
-    atomic_write_csv(df, out)
-    _log.info("Wrote router ablation -> %s", out)
+    atomic_write_csv(df, f"{cfg.paths.tables_dir}/ablation_{cfg.data.dataset}.csv")
+    _log.info("\n%s", df.to_string(index=False))
     return df
 
 
 def main():
-    ap = argparse.ArgumentParser(description="SMART-LLM router-signal ablation")
+    ap = argparse.ArgumentParser(description="SMART-LLM module ablation")
     add_config_args(ap)
     ap.add_argument("--device", default="auto")
     args = ap.parse_args()
     cfg = config_from_args(args)
     seed_everything(cfg.seed)
-    print(run(cfg, device=args.device).to_string(index=False))
+    run(cfg, device=args.device)
 
 
 if __name__ == "__main__":

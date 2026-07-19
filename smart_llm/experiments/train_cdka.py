@@ -32,12 +32,12 @@ _log = get_logger("smart_llm.stage2")
 
 MASTER_COLUMNS = [
     "id", "dataset", "label", "pooling", "condition", "split",
-    "C_i", "entropy", "conf_llm", "entropy_llm",
+    "C_i", "entropy", "probe_pred", "conf_llm", "entropy_llm",
     "sim", "B_pred", "B_true", "RUS", "calibrated_RUS", "delta_C",
     "smart_decision", "oracle_decision",
     "loss_without_retrieval", "loss_with_retrieval",
     "pred_p", "pred_r", "smart_pred", "regret",
-    "t_p", "t_r",
+    "t_p", "t_r", "n_tokens_p", "n_tokens_r",
 ]
 
 
@@ -69,6 +69,7 @@ class PoolingArtifacts:
     router: Router
     ci: np.ndarray          # [n] probe confidence C_i
     entropy: np.ndarray     # [n] normalised entropy (probe)
+    pred: np.ndarray        # [n] probe argmax prediction (for C_i calibration)
     pooled: np.ndarray      # [n, D] pooled hidden used as RBE h_L input
 
 
@@ -99,7 +100,7 @@ def _train_pooling(feats, pooling, cfg, tr, va, device) -> PoolingArtifacts:
     probe, _ = fit_probe(train_pd, val_pd, dim, n_classes, pooling, cfg, device)
 
     pred = probe.predict(x, mask)
-    ci, entropy = pred["confidence"], pred["entropy"]
+    ci, entropy, probe_pred = pred["confidence"], pred["entropy"], pred["pred"]
     pooled = probe.pooled_features(x, mask)         # [n, D]
 
     clean = feats.conds["clean"]
@@ -112,7 +113,7 @@ def _train_pooling(feats, pooling, cfg, tr, va, device) -> PoolingArtifacts:
         sim=clean["sim"][va], bpred=bpred_clean[va], ci=ci[va],
         oracle=clean["oracle"][va],
         loss_p=feats.meta["loss_p"].to_numpy()[va], loss_r=clean["loss_r"][va])
-    return PoolingArtifacts(probe, rbe, router, ci, entropy, pooled)
+    return PoolingArtifacts(probe, rbe, router, ci, entropy, probe_pred, pooled)
 
 
 def run(cfg, device: str = "auto") -> dict:
@@ -127,6 +128,7 @@ def run(cfg, device: str = "auto") -> dict:
     ent_llm = feats.meta["entropy_llm"].to_numpy()
     pred_p = feats.meta["pred_p"].to_numpy(dtype=np.int64)
     t_p = feats.meta["t_p"].to_numpy(dtype=np.float64)
+    n_tokens_p = feats.meta["n_prompt_tokens"].to_numpy(dtype=np.int64)
     ids = feats.meta["id"].tolist()
 
     tr, va, te = _split(n, cfg.seed, cfg.data.val_fraction, cfg.data.val_fraction)
@@ -156,6 +158,7 @@ def run(cfg, device: str = "auto") -> dict:
             oracle = cd["oracle"]
             pred_r = cd["pred_r"].astype(np.int64)
             t_r = cd["t_r"].astype(np.float64)
+            n_tokens_r = cd["n_tokens_r"].astype(np.int64)
             smart_pred = np.where(decision == 1, pred_r, pred_p)
             regret = M.regret_per_sample(decision, loss_p, loss_r)
 
@@ -165,6 +168,7 @@ def run(cfg, device: str = "auto") -> dict:
                     "label": int(labels[i]), "pooling": pooling,
                     "condition": cond, "split": split_of[i],
                     "C_i": float(art.ci[i]), "entropy": float(art.entropy[i]),
+                    "probe_pred": int(art.pred[i]),
                     "conf_llm": float(conf_llm[i]), "entropy_llm": float(ent_llm[i]),
                     "sim": float(cd["sim"][i]), "B_pred": float(bpred[i]),
                     "B_true": float(btrue[i]), "RUS": float(rout["rus"][i]),
@@ -177,6 +181,7 @@ def run(cfg, device: str = "auto") -> dict:
                     "pred_p": int(pred_p[i]), "pred_r": int(pred_r[i]),
                     "smart_pred": int(smart_pred[i]), "regret": float(regret[i]),
                     "t_p": float(t_p[i]), "t_r": float(t_r[i]),
+                    "n_tokens_p": int(n_tokens_p[i]), "n_tokens_r": int(n_tokens_r[i]),
                 })
 
         # ---- per-pooling headline metrics on TEST / clean ----

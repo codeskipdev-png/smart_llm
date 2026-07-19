@@ -1,11 +1,18 @@
 # SMART-LLM
 
-**Confidence-Driven Knowledge Arbitration and Adaptive Adapter Scaling for
-Explainable Few-Shot Large Language Model Text Classification**
+**Decision-Time Retrieval Arbitration for Explainable Few-Shot Large Language
+Model Text Classification**
 
-This repository implements and (on a GPU machine) experimentally validates
-SMART-LLM, an uncertainty-driven adaptive-inference framework for few-shot text
-classification with open-weight LLMs.
+> **Thesis.** The contribution is **decision-time retrieval benefit estimation** —
+> deciding whether retrieval will help *before* retrieving — not a
+> "RAG + LoRA + explainability" pipeline. SMART-LLM predicts retrieval utility
+> from pre-retrieval features and routes on a calibrated comparison with internal
+> confidence, so it never runs retrieval-augmented inference to make the decision
+> (**no double inference**).
+
+This repository implements SMART-LLM and, on a GPU machine, runs one **focused,
+ten-part behavioural study** on **20 Newsgroups** (depth over breadth — a
+behavioural evaluation of retrieval arbitration, not a benchmark sweep).
 
 > **Environment note.** This code is written to run on a **CUDA GPU machine**
 > (primary backbone: `Qwen/Qwen2.5-7B-Instruct`, ~16 GB in bf16). It was authored
@@ -16,16 +23,27 @@ classification with open-weight LLMs.
 
 ---
 
-## Three scientific contributions
+## Contributions (one primary, one key innovation, two supporting)
 
-1. **CDKA — Confidence-Driven Knowledge Arbitration** *(Phase 1A, fully
-   implemented & the focus of the first validation).* Decide *per input* whether
-   retrieval will help, **without** running full RAG first (no double inference).
-2. **UAAS — Uncertainty-Aware Adapter Scaling.** Choose LoRA rank `r(x)` per input
-   from an uncertainty signal; compared against static LoRA `r ∈ {4, 16, 32}`.
-3. **Attribution-Guided Explanation Verification.** Use Integrated Gradients to
-   test whether the tokens that actually drove the prediction appear in the
-   generated explanation.
+1. **CDKA — Confidence-Driven Knowledge Arbitration** *(primary).* A
+   decision-theoretic rule that routes retrieval by comparing a calibrated
+   internal confidence `C_i` with a predicted, calibrated retrieval utility —
+   with **no double inference**.
+2. **RBE — Retrieval Benefit Estimator** *(key innovation).* Predicts the loss
+   reduction from retrieval, `B_pred = RBE([h_L ‖ μ_K])`, from **pre-retrieval**
+   features; evaluated against an oracle (R², MAE, Pearson, regret).
+3. **UAAS — Uncertainty-Aware Adapter Scaling** *(supporting).* Per-input LoRA
+   rank `r(x)` from uncertainty; vs. static LoRA `r ∈ {4, 16, 32}`.
+4. **Attribution-Guided Explanation Verification** *(supporting).* Integrated
+   Gradients test of whether explanations reference the tokens that drove the
+   prediction.
+
+### The ten-part study (one dataset, many analyses)
+
+overall performance · router-vs-oracle · RBE prediction · retrieval behaviour ·
+noise robustness (clean/random/adversarial) · calibration · module ablation ·
+difficulty strata · qualitative case study · computation. → 7 core tables + 8
+figures, each answering one scientific question. See `REPRODUCE.md`.
 
 ## Pipeline at a glance
 
@@ -69,30 +87,21 @@ smart_llm/
 └── README.md
 ```
 
-## Quick start (GPU machine)
+## Quick start (RTX 4090, 24 GB)
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt        # install a CUDA torch build first
 
-# Stage 1: extract frozen features + ground-truth retrieval benefit (heavy, GPU)
-python -m smart_llm.experiments.generate_features --config configs/default.yaml \
-       --dataset 20newsgroups
+# Core behavioural study through the manuscript (Stage 1 is the only heavy step):
+bash scripts/run_phase1a.sh configs/default.yaml 20newsgroups
 
-# Stage 2: train CDKA (probe + RBE + calibration), evaluate router vs oracle (light)
-python -m smart_llm.experiments.train_cdka --config configs/default.yaml \
-       --dataset 20newsgroups
-
-# Phase-1A experiments (produce the master results CSV)
-python -m smart_llm.experiments.run_phase1a --config configs/default.yaml \
-       --dataset 20newsgroups
-
-# Analysis -> figures + tables ; then the manuscript
-python -m smart_llm.analysis.make_all      --config configs/default.yaml
-python -m smart_llm.paper.make_manuscript  --config configs/default.yaml
-python -m smart_llm.paper.make_supplementary --config configs/default.yaml
+# Everything (adds UAAS + explanation verification):
+bash scripts/run_all.sh configs/default.yaml 20newsgroups
 ```
 
-The full sequence is wrapped in [`scripts/run_phase1a.sh`](scripts/run_phase1a.sh).
+Step-by-step commands and the analysis→table/figure map are in
+[`REPRODUCE.md`](REPRODUCE.md). Fast sanity check on a small model:
+`bash scripts/run_all.sh configs/debug.yaml 20newsgroups`.
 
 ## Scientific-integrity rules honored by this code
 

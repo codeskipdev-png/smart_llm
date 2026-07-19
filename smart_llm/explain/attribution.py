@@ -61,9 +61,13 @@ class AttributionExplainer:
             name, trust_remote_code=cfg.llm.trust_remote_code)
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-        # float32 for numerically stable gradients during attribution
+        # bf16 keeps a 7B within a 24 GB card (RTX 4090); IG interpolation is
+        # batched (ig_internal_batch) to bound activation memory. Gradients flow
+        # to embedding activations, not to the frozen weights.
+        from ..utils.device import resolve_dtype
         self.model = AutoModelForCausalLM.from_pretrained(
-            name, torch_dtype=torch.float32, device_map=cfg.llm.device_map,
+            name, torch_dtype=resolve_dtype(cfg.explain.dtype),
+            device_map=cfg.llm.device_map,
             trust_remote_code=cfg.llm.trust_remote_code)
         self.model.eval()
         self.device = self.model.get_input_embeddings().weight.device
@@ -105,8 +109,9 @@ class AttributionExplainer:
             lig = LayerIntegratedGradients(forward_letter, emb_layer)
             baseline = torch.full_like(ids, self.tokenizer.pad_token_id)
             attr = lig.attribute(inputs=ids, baselines=baseline,
-                                 n_steps=self.cfg.explain.ig_steps)
-            scores = attr.sum(dim=-1).squeeze(0).abs().detach().cpu().numpy()
+                                 n_steps=self.cfg.explain.ig_steps,
+                                 internal_batch_size=self.cfg.explain.ig_internal_batch)
+            scores = attr.sum(dim=-1).squeeze(0).abs().float().detach().cpu().numpy()
         except ImportError:
             scores = self._input_x_grad(ids, forward_letter, emb_layer)
 
