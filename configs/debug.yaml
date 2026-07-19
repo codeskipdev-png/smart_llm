@@ -1,0 +1,46 @@
+# Tiny smoke-test config: verifies the whole pipeline runs end-to-end quickly on a
+# small GPU (or slowly on CPU). Uses a 0.5B backbone and a small MiniLM embedder.
+# NOT for reported results.
+experiment_name: debug_smoke
+seed: 20240517
+
+paths:
+  root: runs/debug
+
+llm:
+  name: Qwen/Qwen2.5-0.5B-Instruct
+  dtype: float16
+  max_input_tokens: 1024
+  cache_hidden_tokens: 32
+
+embedding:
+  name: sentence-transformers/all-MiniLM-L6-v2
+  batch_size: 64
+  device: cpu
+  query_instruction: ""          # MiniLM does not use a query instruction
+
+retrieval:
+  k: 4
+  conditions: [clean, random, adversarial]
+
+data:
+  dataset: 20newsgroups
+  max_train: 400
+  max_eval: 120
+  val_fraction: 0.25
+
+pooling:
+  types: [last, mean, attention]
+  default: mean
+
+probe:
+  epochs: 15
+rbe:
+  epochs: 20
+uaas:
+  epochs: 1
+  static_ranks: [4, 16]
+  rank_buckets: [4, 8, 16]
+explain:
+  ig_steps: 8
+  n_samples: 10

@@ -1,0 +1,70 @@
+# SMART-LLM default config (Phase 1A, GPU machine).
+# Only keys that differ from the dataclass defaults need to appear here; this file
+# lists the important ones explicitly for transparency. Structure mirrors
+# smart_llm/config.py.
+experiment_name: phase1a_cdka
+seed: 20240517
+
+paths:
+  root: runs/phase1a
+
+llm:
+  name: Qwen/Qwen2.5-7B-Instruct
+  dtype: bfloat16
+  device_map: auto
+  attn_implementation: sdpa      # set flash_attention_2 if installed
+  max_input_tokens: 2048
+  cache_hidden_tokens: 64        # token window cached for attention pooling
+  hidden_layer: -1
+
+embedding:
+  name: BAAI/bge-large-en-v1.5
+  batch_size: 64
+  device: cuda
+
+retrieval:
+  k: 8
+  index_type: flat_ip
+  conditions: [clean, random, adversarial]
+  adversarial_strategy: other_class_nn
+
+data:
+  dataset: 20newsgroups
+  max_train: 4000                # retrieval pool cap
+  max_eval: 1500                 # evaluation-set cap
+  val_fraction: 0.2
+  remove_headers: true
+
+pooling:
+  types: [last, mean, attention]
+  default: mean
+
+probe:
+  epochs: 60
+  lr: 0.001
+  temperature_scale: true
+
+rbe:
+  hidden_dims: [512, 128]
+  epochs: 120
+  loss: huber
+
+router:
+  alpha: 0.5
+  beta: 0.5
+  calibration: platt
+  lam_uncertainty: 0.5
+  tune_alpha_beta: true
+
+uaas:
+  r_min: 4
+  r_max: 32
+  static_ranks: [4, 16, 32]
+  rank_buckets: [4, 8, 16, 24, 32]
+  epochs: 3
+
+explain:
+  method: integrated_gradients
+  ig_steps: 32
+  top_k_tokens: 10
+  n_samples: 200

@@ -1,0 +1,27 @@
+# Secondary-backbone validation with Llama-3.1-8B-Instruct.
+# Inherit everything from default.yaml conceptually; override the backbone.
+experiment_name: phase1a_cdka_llama
+seed: 20240517
+
+paths:
+  root: runs/phase1a_llama
+
+llm:
+  name: meta-llama/Llama-3.1-8B-Instruct
+  dtype: bfloat16
+  attn_implementation: sdpa
+  max_input_tokens: 2048
+  cache_hidden_tokens: 64
+
+embedding:
+  name: BAAI/bge-large-en-v1.5
+  device: cuda
+
+data:
+  dataset: 20newsgroups
+  max_train: 4000
+  max_eval: 1500
+
+pooling:
+  types: [last, mean, attention]
+  default: mean

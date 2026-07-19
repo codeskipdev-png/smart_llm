@@ -1,0 +1,19 @@
+# run outputs (caches, results, figures, tables, papers, checkpoints)
+runs/
+*.log
+
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# data / model caches
+.cache/
+*.faiss
+*.npz
+
+# os
+.DS_Store
