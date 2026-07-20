@@ -144,16 +144,57 @@ def _load_20newsgroups(cfg: Config) -> Corpus:
                   eval_ids, eval_texts, np.asarray(eval_labels, dtype=np.int64))
 
 
+def _load_parquet_fallback(path, name, split):
+    """Load a dataset from the Hub's auto-converted Parquet branch.
+
+    Modern ``datasets`` (>=3.0) refuses script-based datasets (e.g.
+    financial_phrasebank). Almost every public dataset also has an auto-generated
+    Parquet copy on the ``refs/convert/parquet`` git ref; we read that directly
+    with huggingface_hub + pandas, which is independent of the datasets version.
+    """
+    import datasets as hfds
+    import pandas as pd
+    from huggingface_hub import HfApi, hf_hub_download
+
+    api = HfApi()
+    files = api.list_repo_files(path, repo_type="dataset",
+                                revision="refs/convert/parquet")
+
+    def _match(f):
+        if not f.endswith(".parquet"):
+            return False
+        if name and name not in f:            # restrict to the requested config
+            return False
+        return split in f                     # and the requested split
+
+    cands = [f for f in files if _match(f)]
+    if not cands:                             # relax: split token only
+        cands = [f for f in files if f.endswith(".parquet") and split in f]
+    if not cands:
+        raise RuntimeError(
+            f"No Parquet files for {path}/{name}/{split} on refs/convert/parquet; "
+            f"available (first 20): {files[:20]}")
+    local = [hf_hub_download(path, f, repo_type="dataset",
+                             revision="refs/convert/parquet") for f in sorted(cands)]
+    df = pd.concat([pd.read_parquet(p) for p in local], ignore_index=True)
+    _log.info("Loaded %s/%s:%s via Parquet fallback (%d rows)", path, name, split, len(df))
+    return hfds.Dataset.from_pandas(df, preserve_index=False)
+
+
 def _hf_load_split(path, name, split):
-    """Load an HF split, retrying with trust_remote_code for script-based datasets
-    (e.g. financial_phrasebank) on datasets versions that require it."""
+    """Load an HF split, tolerant of datasets-library version differences.
+
+    Order: (1) plain load_dataset, (2) legacy trust_remote_code for older libs,
+    (3) auto-converted Parquet fallback for datasets>=3.0 that reject scripts.
+    """
     from datasets import load_dataset
     try:
         return load_dataset(path, name, split=split)
-    except Exception as exc:
-        _log.info("retrying %s/%s with trust_remote_code=True (%s)", path, name,
-                  type(exc).__name__)
-        return load_dataset(path, name, split=split, trust_remote_code=True)
+    except Exception:
+        try:
+            return load_dataset(path, name, split=split, trust_remote_code=True)
+        except Exception:
+            return _load_parquet_fallback(path, name, split)
 
 
 def _load_hf(cfg: Config, key: str) -> Corpus:
