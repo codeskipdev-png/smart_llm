@@ -21,21 +21,46 @@ class TextEncoder:
         from sentence_transformers import SentenceTransformer
 
         self.cfg = cfg
-        name = cfg.embedding.alternative_name if use_alternative else cfg.embedding.name
-        self.name = name
+        primary = cfg.embedding.alternative_name if use_alternative else cfg.embedding.name
+        alt = cfg.embedding.alternative_name
         device = cfg.embedding.device
-        try:
-            self.model = SentenceTransformer(name, device=device)
-        except Exception as exc:  # pragma: no cover - depends on runtime
-            _log.warning("Failed to load %s on %s (%s); retrying on cpu.",
-                         name, device, exc)
-            self.model = SentenceTransformer(name, device="cpu")
+
+        # Try, in order: primary@device, primary@cpu, alt@device, alt@cpu. This
+        # survives a flaky/rate-limited download of the large model by falling back
+        # to a small, reliable one (all-MiniLM). The pipeline is self-consistent at
+        # whatever dimension loads (pool + query use the same encoder).
+        candidates = [(primary, device), (primary, "cpu")]
+        if alt and alt != primary:
+            candidates += [(alt, device), (alt, "cpu")]
+
+        self.model = None
+        errors = []
+        for name, dev in candidates:
+            try:
+                self.model = SentenceTransformer(name, device=dev)
+                self.name = name
+                if name != primary:
+                    _log.warning("Primary embedder %s unavailable; using fallback %s. "
+                                 "Set HF_TOKEN and re-run for the intended embedder.",
+                                 primary, name)
+                break
+            except Exception as exc:  # pragma: no cover - runtime/network dependent
+                errors.append(f"{name}@{dev}: {type(exc).__name__}")
+        if self.model is None:
+            raise RuntimeError("Could not load any sentence embedder. Tried:\n  "
+                               + "\n  ".join(errors)
+                               + "\nCheck network / set HF_TOKEN, or pre-download the "
+                                 "model with `huggingface-cli download`.")
+
         self.model.max_seq_length = cfg.embedding.max_seq_length
         self.normalize = cfg.embedding.normalize
-        self.query_instruction = cfg.embedding.query_instruction
+        # the bge query instruction only applies to the bge model
+        self.query_instruction = (cfg.embedding.query_instruction
+                                  if self.name == primary else "")
         self._dim = self.model.get_sentence_embedding_dimension()
         cfg.embedding.dim = self._dim
-        _log.info("Loaded embedder %s (dim=%d)", name, self._dim)
+        cfg.embedding.name = self.name          # record what actually loaded
+        _log.info("Loaded embedder %s (dim=%d)", self.name, self._dim)
 
     @property
     def dim(self) -> int:
