@@ -92,19 +92,26 @@ class AttributionExplainer:
 
     # ------------------------------------------------------------------ #
     def _set_checkpointing(self, on: bool) -> None:
-        """Toggle gradient checkpointing (recompute activations in backward)."""
+        """Toggle gradient checkpointing for the backward-heavy IG pass.
+
+        Critical: HuggingFace only *applies* gradient checkpointing when the
+        module is in train() mode (the eval() path skips it), so without this the
+        7B keeps full activations and OOMs. Qwen2.5 has zero dropout, so train()
+        mode is deterministic here. We restore eval() afterwards.
+        """
         if not self.cfg.explain.gradient_checkpointing:
             return
-        try:
-            if on:
+        if on:
+            try:
                 self.model.gradient_checkpointing_enable(
                     gradient_checkpointing_kwargs={"use_reentrant": False})
-                self.model.enable_input_require_grads()
-            else:
-                self.model.gradient_checkpointing_disable()
-        except TypeError:  # older transformers: no kwargs arg
-            (self.model.gradient_checkpointing_enable() if on
-             else self.model.gradient_checkpointing_disable())
+            except TypeError:  # older transformers: no kwargs arg
+                self.model.gradient_checkpointing_enable()
+            self.model.enable_input_require_grads()
+            self.model.train()          # <-- required for checkpointing to engage
+        else:
+            self.model.gradient_checkpointing_disable()
+            self.model.eval()
 
     def attribute(self, text, verbalizer) -> Attribution:
         torch = self.torch

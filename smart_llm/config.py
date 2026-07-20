@@ -200,7 +200,7 @@ class ExplainConfig:
     ig_steps: int = 32
     ig_internal_batch: int = 1              # IG interpolation batch (1 = min memory)
     dtype: str = "bfloat16"                 # attribution dtype; fp32 7B won't fit 24GB
-    max_input_tokens: int = 1024            # shorter prompt cap for attribution memory
+    max_input_tokens: int = 512             # shorter prompt cap for attribution memory
     gradient_checkpointing: bool = True     # recompute activations in backward (memory)
     top_k_tokens: int = 10                  # salient tokens considered "important"
     n_samples: int = 200                    # samples to run attribution on (cost)
