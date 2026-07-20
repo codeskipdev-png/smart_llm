@@ -9,6 +9,7 @@ PRIMARY="${2:-20newsgroups}"
 SECOND="${3:-financial_phrasebank}"
 PY="python -m"
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 
 echo "=== Second dataset: $SECOND (full pipeline) ==="
 # Stage 1 is the only heavy step; both datasets share one output root so the

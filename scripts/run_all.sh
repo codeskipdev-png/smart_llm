@@ -10,6 +10,8 @@ PY="python -m"
 
 # reduce CUDA fragmentation on 24GB cards
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+# classic HTTPS downloads (the Xet backend fails on some networks/proxies)
+export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 
 # core study (Stage 1/2 + ablation + case study + tables/figures + paper)
 bash scripts/run_phase1a.sh "$CONFIG" "$DATASET"
