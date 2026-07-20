@@ -25,6 +25,7 @@ from ..data.datasets import load_corpus
 from ..data.fewshot import build_demo_block
 from ..embeddings.encoder import TextEncoder
 from ..embeddings.faiss_index import Retriever
+from ..ground_truth import stable_benefit
 from ..llm.backbone import FrozenLLM
 from ..llm.prompts import VerbalizerSpec
 from ..utils.logging import get_logger
@@ -32,7 +33,6 @@ from ..utils.seed import seed_everything
 from .cache import FeatureWriter, cache_exists
 
 _log = get_logger("smart_llm.stage1")
-EPS = 1e-6
 
 
 def _now() -> float:
@@ -144,7 +144,8 @@ def main():
                                true_label=label, want_hidden=False)
             t_r = _now() - t
             loss_r = orr.loss
-            btrue = (loss_p - loss_r) / (abs(loss_p) + EPS)
+            btrue = float(stable_benefit(loss_p, loss_r,
+                                         cfg.rbe.benefit_floor, cfg.rbe.target_clip))
             conds[cond] = dict(
                 centroid=r.centroid[i], sim=float(r.sims[i].mean()),
                 loss_r=loss_r, pred_r=orr.pred, btrue=btrue,

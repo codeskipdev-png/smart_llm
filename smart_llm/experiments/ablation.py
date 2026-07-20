@@ -28,7 +28,8 @@ from ..utils.io import atomic_write_csv
 from ..utils.logging import get_logger
 from ..utils.seed import seed_everything
 from .cache import load_features
-from .train_cdka import _select_device, _split, _train_pooling
+from .train_cdka import (_select_device, _split, _train_pooling,
+                        apply_stable_benefit)
 
 _log = get_logger("smart_llm.ablation")
 
@@ -50,6 +51,7 @@ def run(cfg, device="auto") -> pd.DataFrame:
     pool = cfg.pooling.default
     feats = load_features(cfg.paths.cache_dir, cfg.data.dataset,
                           need_tokens=(pool == "attention"))
+    apply_stable_benefit(feats, cfg)          # correct B_true from stored losses
     n = feats.n
     labels = feats.labels
     tr, va, te = _split(n, cfg.seed, cfg.data.val_fraction, cfg.data.val_fraction)

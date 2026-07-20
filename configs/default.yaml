@@ -37,7 +37,7 @@ data:
 
 pooling:
   types: [last, mean, attention]
-  default: mean
+  default: last              # selected by validation routing agreement (0.63 > mean/attn)
 
 probe:
   epochs: 60
@@ -48,6 +48,8 @@ rbe:
   hidden_dims: [512, 128]
   epochs: 120
   loss: huber
+  benefit_floor: 1.0         # denominator floor: stops B_true blowing up as Loss_p->0
+  target_clip: 5.0
 
 router:
   alpha: 0.5

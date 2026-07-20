@@ -152,7 +152,10 @@ class RBEConfig:
     batch_size: int = 128
     #: clip/normalise B_true target; huber loss is robust to outliers.
     loss: str = "huber"                     # huber | mse
-    target_clip: float = 3.0
+    target_clip: float = 5.0                # bound on |B_true| (also the eval range)
+    #: denominator floor for the relative-benefit target (prevents the divide-by-
+    #: near-zero blow-up when Loss_p -> 0 for confident predictions).
+    benefit_floor: float = 1.0
 
 
 @dataclass

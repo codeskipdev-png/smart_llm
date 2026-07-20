@@ -23,6 +23,7 @@ from ..cdka.probe import ProbeData, fit_probe
 from ..cdka.rbe import RBEData, fit_rbe
 from ..cdka.router import Router
 from ..config import add_config_args, config_from_args
+from ..ground_truth import stable_benefit
 from ..utils.io import atomic_write_csv, save_json
 from ..utils.logging import get_logger
 from ..utils.seed import seed_everything
@@ -73,6 +74,17 @@ class PoolingArtifacts:
     pooled: np.ndarray      # [n, D] pooled hidden used as RBE h_L input
 
 
+def apply_stable_benefit(feats, cfg) -> None:
+    """Recompute B_true for every condition from the cached losses using the
+    numerically stable definition. This corrects an existing cache in place
+    (no LLM re-run needed) — Loss_p/Loss_r are already stored."""
+    loss_p = feats.meta["loss_p"].to_numpy(dtype=np.float64)
+    for c in feats.conds:
+        feats.conds[c]["btrue"] = stable_benefit(
+            loss_p, feats.conds[c]["loss_r"].astype(np.float64),
+            cfg.rbe.benefit_floor, cfg.rbe.target_clip).astype(np.float32)
+
+
 def _probe_inputs(feats, pooling: str):
     """Return (x, mask) arrays for the given pooling type."""
     if pooling == "last":
@@ -121,6 +133,7 @@ def run(cfg, device: str = "auto") -> dict:
     need_tokens = "attention" in cfg.pooling.types
     feats = load_features(cfg.paths.cache_dir, cfg.data.dataset,
                           need_tokens=need_tokens)
+    apply_stable_benefit(feats, cfg)          # correct B_true from stored losses
     n = feats.n
     labels = feats.labels
     loss_p = feats.meta["loss_p"].to_numpy(dtype=np.float64)

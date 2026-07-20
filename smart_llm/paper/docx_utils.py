@@ -72,8 +72,8 @@ def equation(doc, text, number: Optional[str] = None):
 
 def _fmt_cell(v):
     if isinstance(v, float):
-        if v != v:  # NaN
-            return TBD
+        if v != v:  # NaN == an undefined metric (e.g. precision with no positives)
+            return "n/a"
         return f"{v:.3f}"
     return str(v)
 

@@ -83,15 +83,19 @@ def build(cfg):
 
     # ---------------- S4 derivations ----------------
     D.heading(doc, "S4  Mathematical Details and Derivations", level=1)
-    D.heading(doc, "S4.1  Benefit normalisation", level=2)
+    D.heading(doc, "S4.1  Benefit normalisation and numerical stability", level=2)
     D.para(doc,
-        "The benefit B_true = (Loss_p - Loss_r)/(|Loss_p| + eps) is a relative loss "
-        "reduction bounded below by -inf and above by 1 + eps^{-1}|Loss_p|^{-1}·... ; "
-        "in practice we clip the regression target to a fixed range and fit a robust "
-        "Huber objective, which bounds the influence of outliers where Loss_p is near "
-        "zero. The sign of B_true equals the sign of (Loss_p - Loss_r), so the oracle "
-        "decision 1[Loss_r < Loss_p] equals 1[B_true > 0]; the RBE therefore provides "
-        "a soft, differentiable relaxation of the oracle indicator.")
+        "The naive relative benefit (Loss_p - Loss_r)/(|Loss_p| + eps) with a tiny eps "
+        "is numerically unstable: when the parametric model is confidently correct, "
+        "Loss_p approaches zero and the ratio diverges, producing targets several "
+        "orders of magnitude larger than typical values and making the regression "
+        "meaningless. We therefore floor the denominator by a constant and clip the "
+        "result, B_true = clip((Loss_p - Loss_r)/(|Loss_p| + floor), -c, c) with "
+        "floor = 1 and c = 5. This regularises the relative scale and bounds outliers "
+        "while leaving the sign unchanged, so the oracle decision 1[Loss_r < Loss_p] = "
+        "1[B_true > 0] is unaffected; the RBE thus provides a bounded, sign-consistent "
+        "relaxation of the oracle indicator. Because Loss_p and Loss_r are logged, "
+        "B_true is recomputed at analysis time and requires no additional LLM passes.")
     D.heading(doc, "S4.2  Calibration and the routing rule", level=2)
     D.para(doc,
         "Platt scaling fits calibrated(RUS) = sigmoid(a·RUS + b) by maximum likelihood "
