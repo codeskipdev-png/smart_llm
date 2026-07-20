@@ -569,6 +569,7 @@ _DS_LABELS = {"20newsgroups": "20 Newsgroups (topic)",
               "financial_phrasebank": "Financial PhraseBank (sentiment)",
               "twitter_financial": "Twitter Financial News (sentiment)",
               "rotten_tomatoes": "Rotten Tomatoes (sentiment)",
+              "imdb": "IMDb (sentiment)",
               "tweeteval": "TweetEval (sentiment)"}
 
 

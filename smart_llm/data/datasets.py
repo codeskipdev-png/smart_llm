@@ -68,16 +68,18 @@ _HF_PRESETS = {
         text="sentence", label="label",
         train_split="train", eval_split=None,   # single split -> we carve one
         label_names=["negative", "neutral", "positive"]),
-    # parquet-native financial sentiment (loads on datasets>=3.0; no script)
+    # parquet-native financial sentiment (no loading script -> loads on datasets>=3.0)
     "twitter_financial": dict(
         path="zeroshot/twitter-financial-news-sentiment", name=None,
         text="text", label="label", train_split="train", eval_split="validation",
-        label_names=["Bearish", "Bullish", "Neutral"]),
-    # canonical parquet-native sentiment fallback (guaranteed to load)
+        label_names=None),                       # taken from the ClassLabel feature
+    # canonical parquet-native sentiment datasets (guaranteed to load on 3.x)
     "rotten_tomatoes": dict(
         path="rotten_tomatoes", name=None, text="text", label="label",
-        train_split="train", eval_split="test",
-        label_names=["negative", "positive"]),
+        train_split="train", eval_split="test", label_names=None),
+    "imdb": dict(
+        path="imdb", name=None, text="text", label="label",
+        train_split="train", eval_split="test", label_names=None),
     "pubmed": dict(  # PubMed 20k RCT sentence-role classification
         path="armanc/pubmed-rct20k", name=None, text="text", label="label",
         train_split="train", eval_split="test",
