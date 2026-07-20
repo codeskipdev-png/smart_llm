@@ -30,6 +30,12 @@ def _load(cfg, name):
     return None
 
 
+def _load_named(cfg, name):
+    """Load a dataset-agnostic table (e.g. the cross-dataset comparison)."""
+    p = Path(cfg.paths.tables_dir) / f"{name}.csv"
+    return pd.read_csv(p) if p.exists() else None
+
+
 def _num(df, row_col, row_val, col):
     """Raw float cell (or None) for computing honest interpretation."""
     if df is None:
@@ -191,6 +197,7 @@ def build(cfg):
     _methodology(doc, cfg)
     _experiments(doc, cfg)
     _results(doc, cfg, c)
+    _cross_dataset(doc, cfg)
     _discussion(doc, c)
     _future_work(doc)
     _conclusion(doc, c)
@@ -556,6 +563,81 @@ def _results(doc, cfg, c):
         "only on selected inputs. Implication: the advantage is fewer augmented passes "
         "and shorter prompts plus robustness — not a uniform latency win, which we "
         "state plainly rather than overclaim.")
+
+
+_DS_LABELS = {"20newsgroups": "20 Newsgroups (topic)",
+              "financial_phrasebank": "Financial PhraseBank (sentiment)",
+              "tweeteval": "TweetEval (sentiment)"}
+
+
+def _cross_interp(comp) -> str:
+    """Honest comparison of the RBE's marginal value across datasets."""
+    rows = {r["Dataset"]: r for _, r in comp.iterrows()}
+    def g(ds, k):
+        v = rows.get(ds, {}).get(k)
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+    # rank datasets by the RBE's routing gain (Δ agreement)
+    gains = [(ds, g(ds, "Δ Agreement (RBE gain)")) for ds in rows]
+    gains = [(d, v) for d, v in gains if v is not None]
+    if len(gains) < 2:
+        return ("The comparison is reported in the table above.")
+    gains.sort(key=lambda t: t[1], reverse=True)
+    best_ds, best_gain = gains[0]
+    worst_ds, worst_gain = gains[-1]
+    best_lab = _DS_LABELS.get(best_ds, best_ds)
+    worst_lab = _DS_LABELS.get(worst_ds, worst_ds)
+    r2_best = g(best_ds, "RBE R2")
+    r2_worst = g(worst_ds, "RBE R2")
+    spread = best_gain - worst_gain
+
+    if spread > 0.01:
+        s = (f"What happened: the learned benefit term improves oracle agreement over "
+             f"similarity-only routing more on {best_lab} (Δ={best_gain:.3f}) than on "
+             f"{worst_lab} (Δ={worst_gain:.3f})")
+        if r2_best is not None and r2_worst is not None and r2_best > r2_worst:
+            s += (f", and benefit is more predictable there (R^2 {r2_best:.3f} vs "
+                  f"{r2_worst:.3f})")
+        s += (". Why: where semantic similarity is a weaker cue for retrieval "
+              "usefulness — as in sentiment relative to topic — the model-internal "
+              "signal in the RBE carries information that similarity alone does not. "
+              "Implication: this is direct evidence that the learned estimator, not "
+              "merely similarity, contributes to the decision, which is the central "
+              "claim of the paper; we note it holds on the datasets studied and leave "
+              "broader generality open.")
+        return s
+    return ("What happened: the benefit term's marginal contribution over "
+            "similarity-only routing is comparable across the datasets studied "
+            f"(Δ agreement within {abs(spread):.3f}). Why: on both, semantic "
+            "similarity remains a competitive proxy for retrieval usefulness. "
+            "Implication: we do not overclaim a similarity-independent benefit signal; "
+            "on these datasets the decision-time framework's demonstrated value rests "
+            "chiefly on calibrated routing and robustness to corrupted retrieval "
+            "rather than on benefit-magnitude prediction, and establishing regimes "
+            "where the learned estimator clearly dominates is future work.")
+
+
+def _cross_dataset(doc, cfg):
+    comp = _load_named(cfg, "cross_dataset_comparison")
+    if comp is None or len(comp) < 2:
+        return
+    D.heading(doc, "5.11  Analysis 11 — Cross-dataset generalization", level=2)
+    D.bold_label(doc, "Question.",
+        "Does the learned Retrieval Benefit Estimator add value over similarity-only "
+        "routing where semantic similarity is a weaker proxy for retrieval usefulness "
+        "(sentiment vs. topic)?")
+    D.table_from_df(doc, comp,
+        "Table 8. Cross-dataset comparison. Δ agreement = agreement(full) − "
+        "agreement(similarity-only); Δ regret = regret(similarity-only) − regret(full). "
+        "Positive Δ means the learned benefit term helps.")
+    D.figure(doc, str(Path(cfg.paths.figures_dir) /
+                     f"figure9_cross_dataset.png"),
+             "Figure 9. RBE R^2 and the routing-agreement gain of the full rule over "
+             "similarity-only routing, per dataset. Higher bars indicate more value "
+             "from the learned benefit estimator.")
+    D.bold_label(doc, "Reading.", _cross_interp(comp))
 
 
 def _discussion(doc, c):

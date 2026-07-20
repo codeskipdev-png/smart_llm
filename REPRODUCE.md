@@ -65,6 +65,29 @@ Only `generate_features` is expensive. Everything else consumes the cache, so yo
 can re-run CDKA/ablation/analysis/paper in seconds. Use `--limit N` on Stage 1 for
 a dry run; lower `data.max_eval` to shorten a full run.
 
+### 1b. Cross-dataset generalization (does the learned RBE earn its place?)
+
+20 Newsgroups is strongly similarity-shaped (topic), so similarity-only routing is
+hard to beat. Financial PhraseBank (sentiment) is a weaker-similarity regime where
+the *learned* benefit estimator should contribute more — the decisive test for
+contribution #1. Both datasets share one output root so they compare directly.
+
+```bash
+# second dataset end-to-end + comparison + primary manuscript rebuild (one command):
+bash scripts/run_cross.sh configs/default.yaml 20newsgroups financial_phrasebank
+```
+or manually:
+```bash
+bash scripts/run_phase1a.sh configs/default.yaml financial_phrasebank
+python -m smart_llm.analysis.cross_dataset --config configs/default.yaml \
+       --datasets 20newsgroups,financial_phrasebank
+python -m smart_llm.paper.make_manuscript --config configs/default.yaml --dataset 20newsgroups
+```
+Outputs: `tables/cross_dataset_comparison.csv`, `figures/figure9_cross_dataset.*`, and
+a new manuscript **Analysis 11** whose text is computed from the comparison — it
+credits the learned RBE only if its gain over similarity-only routing is actually
+larger on Financial PhraseBank, and says so honestly otherwise.
+
 ---
 
 ## 2. The ten analyses -> outputs

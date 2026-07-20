@@ -144,8 +144,19 @@ def _load_20newsgroups(cfg: Config) -> Corpus:
                   eval_ids, eval_texts, np.asarray(eval_labels, dtype=np.int64))
 
 
-def _load_hf(cfg: Config, key: str) -> Corpus:
+def _hf_load_split(path, name, split):
+    """Load an HF split, retrying with trust_remote_code for script-based datasets
+    (e.g. financial_phrasebank) on datasets versions that require it."""
     from datasets import load_dataset
+    try:
+        return load_dataset(path, name, split=split)
+    except Exception as exc:
+        _log.info("retrying %s/%s with trust_remote_code=True (%s)", path, name,
+                  type(exc).__name__)
+        return load_dataset(path, name, split=split, trust_remote_code=True)
+
+
+def _load_hf(cfg: Config, key: str) -> Corpus:
     spec = _HF_PRESETS[key]
     mc = cfg.data.text_max_chars
 
@@ -157,7 +168,7 @@ def _load_hf(cfg: Config, key: str) -> Corpus:
         i2, t2, y2 = zip(*keep)
         return list(i2), list(t2), list(y2)
 
-    train_ds = load_dataset(spec["path"], spec["name"], split=spec["train_split"])
+    train_ds = _hf_load_split(spec["path"], spec["name"], spec["train_split"])
     # label names: preset override, else the ClassLabel feature names.
     label_names = spec["label_names"]
     if label_names is None:
@@ -166,7 +177,7 @@ def _load_hf(cfg: Config, key: str) -> Corpus:
                            sorted({str(x) for x in train_ds[spec["label"]]}))
 
     if spec["eval_split"] is not None:
-        eval_ds = load_dataset(spec["path"], spec["name"], split=spec["eval_split"])
+        eval_ds = _hf_load_split(spec["path"], spec["name"], spec["eval_split"])
         p_ids, p_txt, p_lab = _split_to_arrays(train_ds, "train")
         e_ids, e_txt, e_lab = _split_to_arrays(eval_ds, "test")
     else:  # single split -> deterministic carve
