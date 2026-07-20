@@ -68,6 +68,16 @@ _HF_PRESETS = {
         text="sentence", label="label",
         train_split="train", eval_split=None,   # single split -> we carve one
         label_names=["negative", "neutral", "positive"]),
+    # parquet-native financial sentiment (loads on datasets>=3.0; no script)
+    "twitter_financial": dict(
+        path="zeroshot/twitter-financial-news-sentiment", name=None,
+        text="text", label="label", train_split="train", eval_split="validation",
+        label_names=["Bearish", "Bullish", "Neutral"]),
+    # canonical parquet-native sentiment fallback (guaranteed to load)
+    "rotten_tomatoes": dict(
+        path="rotten_tomatoes", name=None, text="text", label="label",
+        train_split="train", eval_split="test",
+        label_names=["negative", "positive"]),
     "pubmed": dict(  # PubMed 20k RCT sentence-role classification
         path="armanc/pubmed-rct20k", name=None, text="text", label="label",
         train_split="train", eval_split="test",
@@ -181,20 +191,65 @@ def _load_parquet_fallback(path, name, split):
     return hfds.Dataset.from_pandas(df, preserve_index=False)
 
 
+def _load_via_datasets_server(path, name, split):
+    """Fetch Parquet via the HF datasets-server API.
+
+    This is more general than the repo's git ref: the server can hold a Parquet
+    copy even when the dataset repo has no ``refs/convert/parquet`` branch (as with
+    the old script-based financial_phrasebank).
+    """
+    import json
+    import os
+    import tempfile
+    import urllib.request
+
+    import datasets as hfds
+    import pandas as pd
+
+    url = f"https://datasets-server.huggingface.co/parquet?dataset={path}"
+    with urllib.request.urlopen(url, timeout=60) as r:  # nosec - public API
+        meta = json.load(r)
+    pfiles = meta.get("parquet_files", [])
+    sel = [f for f in pfiles if f.get("split") == split
+           and (name is None or f.get("config") == name)]
+    if not sel:
+        avail = sorted({(f.get("config"), f.get("split")) for f in pfiles})
+        raise RuntimeError(f"datasets-server has no parquet for {path}/{name}/{split}; "
+                           f"available configs/splits: {avail[:20]}")
+    frames = []
+    for f in sel:
+        tmp = tempfile.NamedTemporaryFile(suffix=".parquet", delete=False)
+        tmp.close()
+        urllib.request.urlretrieve(f["url"], tmp.name)  # nosec - public file
+        frames.append(pd.read_parquet(tmp.name))
+        os.unlink(tmp.name)
+    df = pd.concat(frames, ignore_index=True)
+    _log.info("Loaded %s/%s:%s via datasets-server (%d rows)", path, name, split, len(df))
+    return hfds.Dataset.from_pandas(df, preserve_index=False)
+
+
 def _hf_load_split(path, name, split):
     """Load an HF split, tolerant of datasets-library version differences.
 
-    Order: (1) plain load_dataset, (2) legacy trust_remote_code for older libs,
-    (3) auto-converted Parquet fallback for datasets>=3.0 that reject scripts.
+    Order: (1) plain load_dataset, (2) legacy trust_remote_code, (3) the repo's
+    auto-converted Parquet branch, (4) the datasets-server Parquet API. Scripts
+    are unsupported on datasets>=3.0, so (3)/(4) are the fallbacks that matter.
     """
     from datasets import load_dataset
-    try:
-        return load_dataset(path, name, split=split)
-    except Exception:
+    errors = []
+    for attempt in ("plain", "trc", "convert", "server"):
         try:
-            return load_dataset(path, name, split=split, trust_remote_code=True)
-        except Exception:
-            return _load_parquet_fallback(path, name, split)
+            if attempt == "plain":
+                return load_dataset(path, name, split=split)
+            if attempt == "trc":
+                return load_dataset(path, name, split=split, trust_remote_code=True)
+            if attempt == "convert":
+                return _load_parquet_fallback(path, name, split)
+            return _load_via_datasets_server(path, name, split)
+        except Exception as exc:  # try the next strategy
+            errors.append(f"{attempt}: {type(exc).__name__}: {exc}")
+    raise RuntimeError("All load strategies failed for "
+                       f"{path}/{name}:{split}\n  " + "\n  ".join(errors))
 
 
 def _load_hf(cfg: Config, key: str) -> Corpus:
