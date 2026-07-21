@@ -3,6 +3,8 @@
 Exercises FeatureWriter -> load_features -> train_cdka.run -> tables/figures on
 the CPU box, validating the full CDKA training + logging + analysis path.
 """
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
@@ -103,3 +105,58 @@ def test_analysis_tables_build(tmp_path):
     assert len(tbls["table4_noise"]) == len(CONDS)
     assert len(tbls["table_difficulty"]) >= 1      # difficulty tiers
     assert "Precision" in tbls["table2_router_oracle"].columns
+
+
+def test_ablation_baselines_and_stats(tmp_path):
+    """Ablation emits internal ablations + external baselines + CI/significance."""
+    cfg = _cfg(tmp_path)
+    _build_cache(cfg)
+    from smart_llm.experiments import ablation
+    df = ablation.run(cfg, device="cpu")
+
+    names = df["Variant"].tolist()
+    assert "SMART (full)" in names
+    assert any(v.startswith("- RBE") for v in names)
+    assert any(v.startswith("- Calibration") for v in names)
+    # external decision-policy baselines (reviewer-requested)
+    assert any(v.startswith("Confidence-only") for v in names)
+    assert any(v.startswith("Entropy-gated") for v in names)
+    assert any(v.startswith("Random (budget-matched)") for v in names)
+    assert "Oracle (upper bound)" in names
+
+    # statistical-reporting columns present and well-formed
+    for col in ["accuracy_ci95", "regret_ci95", "acc_p_vs_full",
+                "regret_p_vs_full", "acc_sig", "regret_sig"]:
+        assert col in df.columns
+    ci = df["accuracy_ci95"].to_numpy(dtype=float)
+    assert np.all((ci >= 0) & (ci <= 1))           # CI half-widths are proportions
+    # the reference row is self-marked; every other row gets a marker
+    ref = df[df["Variant"] == "SMART (full)"].iloc[0]
+    assert ref["acc_sig"] == "(ref)"
+    others = df[df["Variant"] != "SMART (full)"]
+    assert others["acc_sig"].isin(["*", "n.s."]).all()
+
+    # random baseline is budget-matched to SMART within a small tolerance
+    sm_freq = float(df[df["Variant"] == "SMART (full)"]["retrieval_freq"].iloc[0])
+    rd_freq = float(df[df["Variant"].str.startswith("Random")]
+                    ["retrieval_freq"].iloc[0])
+    assert abs(sm_freq - rd_freq) <= 0.1
+
+
+def test_ablation_multiseed_aggregates(tmp_path):
+    """Multi-seed driver re-runs only the light stage and aggregates by variant."""
+    cfg = _cfg(tmp_path)
+    _build_cache(cfg)
+    from smart_llm.experiments import ablation
+    df = ablation.run_multiseed(cfg, seeds=(0, 1, 2), device="cpu")
+
+    # every variant is aggregated over all seeds (stable names align across seeds)
+    assert (df["n_seeds"] == 3).all()
+    for col in ["accuracy", "accuracy_std", "oracle_agreement",
+                "oracle_agreement_std", "mean_regret", "mean_regret_std"]:
+        assert col in df.columns
+    # across-seed std is non-negative and finite
+    assert np.all(df["accuracy_std"].to_numpy(dtype=float) >= 0)
+    # the multiseed CSV is written for downstream rendering
+    p = Path(cfg.paths.tables_dir) / f"ablation_multiseed_{cfg.data.dataset}.csv"
+    assert p.exists()

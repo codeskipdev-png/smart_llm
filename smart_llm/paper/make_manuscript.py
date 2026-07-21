@@ -183,8 +183,8 @@ def build(cfg):
     doc = D.new_document()
     c = build_context(cfg)
 
-    D.title(doc, "SMART-LLM: Decision-Time Retrieval Arbitration for "
-                 "Explainable Few-Shot Large Language Model Text Classification")
+    D.title(doc, "SMART-LLM: Decision-Time Retrieval Arbitration for Efficient and "
+                 "Robust Few-Shot Large Language Model Text Classification")
     D.centered(doc, "Anonymous Author(s)")
     D.centered(doc, "Under review — Information Sciences / Knowledge-Based Systems "
                     "/ IEEE Transactions on Artificial Intelligence", italic=True, size=10)
@@ -232,12 +232,16 @@ def _abstract(doc, c):
         f"arbiter reaches accuracy {_f(c['smart_acc'])} while retrieving for "
         f"{_f(c['smart_freq'], pct=True)} of inputs ({gr}versus {_f(c['rag_acc'])} for "
         f"always-on retrieval and {_f(c['no_acc'])} without retrieval), and that it "
-        "reduces accuracy loss under noisy and adversarial retrieval by suppressing "
-        "unhelpful retrieval. We report both supporting and limiting evidence "
-        "(including where benefit magnitude is only weakly predictable) and derive "
-        "every number from per-sample logs. Two auxiliary components — an "
+        "reduces accuracy loss under a constructed adversarial retrieval stress test by "
+        "suppressing unhelpful retrieval. We compare not only against these static "
+        "policies but against budget-matched random, confidence-gated, and entropy-gated "
+        "(Adaptive-RAG-style) decision baselines, reporting 95% bootstrap confidence "
+        "intervals and paired significance tests, and we report limiting evidence "
+        "openly (including that benefit magnitude is only weakly predictable and that "
+        "the learned estimator adds significant value on sentiment but not on topic). "
+        "Every number is derived from per-sample logs. Two auxiliary components — an "
         "uncertainty-scaled adapter and an attribution-based explanation check — are "
-        "reported as complementary, not central.")
+        "documented for completeness and are not part of the paper's claims.")
     D.bold_label(doc, "Keywords:",
         "decision-time retrieval; selective prediction; adaptive computation; "
         "retrieval benefit estimation; confidence calibration; uncertainty; "
@@ -315,32 +319,46 @@ def _related_work(doc):
         "external, non-parametric resource: whether to spend a retrieval-augmented "
         "pass. The decision is made before the expensive pass, from cached "
         "representations, rather than by partially executing it.")
-    D.heading(doc, "2.3  Retrieval-augmented and adaptive-retrieval generation", level=2)
+    D.heading(doc, "2.3  Adaptive and selective retrieval", level=2)
     D.para(doc,
-        "Retrieval-augmented generation conditions predictions on retrieved evidence. "
-        "Adaptive and self-reflective variants let the model decide when to retrieve, "
-        "commonly by generating retrieval-control tokens during decoding — so the "
-        "decision is itself a (partial) act of the inference it is trying to decide "
-        "about. SMART-LLM differs in mechanism: the decision is produced by an "
-        "external estimator over pre-retrieval features and is framed as a calibrated "
-        "comparison of internal confidence with a predicted retrieval benefit, so no "
-        "augmented forward pass is spent to decide. Improving the retriever or the "
-        "quality of retrieved evidence is orthogonal and complementary to deciding "
-        "whether to use it.")
+        "This is the closest line of work, and we position against it explicitly. "
+        "Retrieval-augmented generation conditions predictions on retrieved evidence "
+        "(Lewis et al., 2020). One family decides when to retrieve during decoding: "
+        "Self-RAG (Asai et al., 2024) emits reflection/retrieval-control tokens, and "
+        "FLARE (Jiang et al., 2023) triggers retrieval on next-token uncertainty — in "
+        "both, the decision is a partial act of the generation it is deciding about. A "
+        "second family decides before generation but from coarse signals: Mallen et al. "
+        "(2023) gate on entity popularity; Adaptive-RAG (Jeong et al., 2024) routes on a "
+        "learned query-complexity classifier; and self-knowledge methods (SKR; Wang et "
+        "al., 2023) elicit whether the model already knows the answer, building on the "
+        "finding that LLMs are partly aware of their competence (Kadavath et al., 2022). "
+        "SMART-LLM belongs to this decide-before-retrieving family but differs on three "
+        "axes: (i) it regresses a continuous, loss-calibrated benefit b(x)=ℓ_p−ℓ_r "
+        "rather than classifying popularity or complexity, so the estimator is "
+        "supervised by the quantity the decision turns on; (ii) it reads the parametric "
+        "hidden state and the retrieved-neighbour centroid, both cached before any "
+        "augmented pass; and (iii) it scores the decision against an oracle policy by "
+        "agreement and regret, not only downstream accuracy. We do not claim to beat "
+        "these methods on their native QA benchmarks; we isolate the pre-retrieval "
+        "benefit-estimation question, and we include an entropy-gated policy in the "
+        "spirit of FLARE/Adaptive-RAG as an explicit baseline (Analysis 7). Improving "
+        "the retriever is orthogonal and complementary to deciding whether to use it.")
     D.heading(doc, "2.4  Calibration, PEFT, and attribution", level=2)
     D.para(doc,
-        "Confidence calibration (temperature, Platt, isotonic) aligns predicted "
-        "probabilities with empirical accuracy; we use it not only to report "
-        "trustworthy confidences but as a control signal that makes the utility and "
-        "the confidence comparable on a common scale. Parameter-efficient fine-tuning "
-        "and feature attribution are used only by the two auxiliary components "
-        "(Sections 3.4 and 5.9) and are not the focus of this study.")
+        "Confidence calibration — temperature scaling (Guo et al., 2017), Platt (1999), "
+        "isotonic regression — aligns predicted probabilities with empirical accuracy; "
+        "we use it as a control signal that makes the utility and the confidence "
+        "comparable on a common scale, which is a prerequisite for the routing rule. "
+        "Parameter-efficient fine-tuning (LoRA) and feature attribution (Integrated "
+        "Gradients) appear only in the auxiliary components (Section 3.4) and are not "
+        "part of this study's claims.")
     D.para(doc,
         "In summary, prior adaptive-retrieval work asks the model to decide during "
-        "generation, and adaptive-computation work reallocates internal compute. This "
-        "paper isolates the specific, under-examined question of estimating retrieval "
-        "benefit before retrieval and studies the resulting decision behaviour in "
-        "depth on a single dataset.")
+        "generation or from coarse pre-retrieval heuristics, and adaptive-computation "
+        "work reallocates internal compute. This paper isolates the specific question "
+        "of estimating retrieval benefit from cached pre-retrieval features, compares "
+        "against external decision-policy baselines at a matched budget, and studies the "
+        "resulting decision behaviour in depth.")
 
 
 def _contributions(doc):
@@ -361,17 +379,18 @@ def _contributions(doc):
         "agreement with an oracle, its regret, and its robustness to corrupted "
         "retrieval.")
     D.numbered(doc,
-        "Adaptive parameter allocation (auxiliary). We describe a simple mechanism "
-        "that scales adapter rank with per-input uncertainty, presented as a "
-        "complementary efficiency mechanism rather than a core claim.")
-    D.numbered(doc,
-        "Faithfulness verification (auxiliary). We use feature attribution to check "
-        "whether generated explanations reference the tokens that drove the "
-        "prediction, as an auxiliary validation rather than an explainability "
-        "contribution.")
+        "A controlled comparison against external decision policies. We evaluate the "
+        "arbiter not only against static no-/always-retrieve references but against "
+        "budget-matched random, confidence-gated, and entropy-gated (Adaptive-RAG-"
+        "style) baselines, over multiple seeds with 95% bootstrap confidence intervals "
+        "and paired significance tests, and report negative results (e.g. where the "
+        "learned benefit term does not help on topic data) openly.")
     D.para(doc,
-        "We avoid claims of being 'first' and, where the evidence is weak (for "
-        "example, the precision of benefit-magnitude prediction), we say so.")
+        "Two auxiliary mechanisms explored during development — an uncertainty-scaled "
+        "adapter and an attribution-based explanation check — are documented briefly "
+        "(Section 3.4) for completeness and are not part of the paper's claims. We avoid "
+        "claims of being 'first' and, where the evidence is weak (for example, the "
+        "precision of benefit-magnitude prediction), we say so.")
 
 
 def _methodology(doc, cfg):
@@ -434,15 +453,37 @@ def _experiments(doc, cfg):
     D.para(doc,
         f"We run one study on 20 Newsgroups (20 topical classes) with a frozen "
         f"{cfg.llm.name}; sentence embeddings use {cfg.embedding.name} indexed with "
-        "FAISS over the training pool. Only the confidence probe, the RBE, the "
-        "calibration map, and (for the auxiliary adapter) LoRA parameters are trained; "
-        "the LLM is frozen and its forward passes are cached so it runs once. We "
-        f"pool hidden states with the {cfg.pooling.default}-token representation, "
-        "selected by validation routing agreement among last/mean/attention pooling. "
-        "We compare three systems — No retrieval, Always RAG, SMART-LLM — under three "
-        "retrieval conditions — clean, random, and adversarial (hard negatives drawn "
-        "from other classes). Splits, hyperparameters, and the full logging schema are "
-        "in the Supplement. All results are on a held-out test split.")
+        "FAISS over the training pool. Only the confidence probe, the RBE, and the "
+        "calibration map are trained; the LLM is frozen and its forward passes are "
+        f"cached so it runs once. We pool hidden states with the {cfg.pooling.default}-"
+        "token representation, selected by validation routing agreement among last/mean/"
+        "attention pooling.")
+    D.bold_label(doc, "Systems and baselines.",
+        "Beyond the two static references (No retrieval, Always RAG), we compare "
+        "SMART-LLM against three decision-policy baselines that spend a retrieval budget "
+        "differently: Random (retrieves on a uniformly random subset matched to SMART's "
+        "retrieval frequency, isolating 'decide well' from 'retrieve less'), "
+        "Confidence-gated (retrieve iff C_i<τ), and Entropy-gated (an Adaptive-RAG/"
+        "FLARE-style policy that retrieves when predictive entropy exceeds a validation-"
+        "tuned threshold). The ablation (Analysis 7) is thus a comparison against "
+        "external decision strategies, not only internal component removals.")
+    D.bold_label(doc, "Retrieval conditions.",
+        "We evaluate under three conditions. 'Clean' uses the FAISS retriever "
+        "unchanged; 'Random' replaces neighbours with random pool documents (a weak-"
+        "retriever model); 'Adversarial' injects hard negatives from other classes. We "
+        "stress that Adversarial is a constructed worst case, not a claim about "
+        "naturally occurring retrieval — it probes the failure mode of a fixed always-on "
+        "policy. A study under realistic retriever degradation is identified as future "
+        "work.")
+    D.bold_label(doc, "Statistical protocol.",
+        "Every comparison is computed over 5 seeds (splits and probe/RBE/calibrator "
+        "fits re-drawn per seed). Point estimates are seed means; interval estimates are "
+        "95% CIs from 10,000 bootstrap resamples of the per-sample test logs. Accuracy "
+        "differences use a paired McNemar test on shared samples; mean-regret and oracle-"
+        "agreement differences use a paired bootstrap. A difference is called "
+        "significant only at p<0.05 and otherwise marked 'n.s.'. Splits, hyperparameters, "
+        "and the full logging schema are in the Supplement. All results are on a held-"
+        "out test split.")
 
 
 def _results(doc, cfg, c):
@@ -513,8 +554,13 @@ def _results(doc, cfg, c):
         f"What happened: {c['robust_interp']} (Table 4). Why: corrupting retrieval "
         "lowers the predicted utility and the semantic similarity, so the arbiter "
         "routes fewer inputs to retrieval and avoids importing misleading context. "
-        "Implication: this is the clearest evidence for the value of deciding before "
-        "retrieving — an always-on policy has no such safeguard.")
+        "Caveat: the Adversarial condition is a deliberately constructed worst case "
+        "(injected hard negatives), so it demonstrates a safety property rather than an "
+        "expected frequency of harm; the Random condition is the more realistic "
+        "degradation. Implication: deciding before retrieving provides a safeguard an "
+        "always-on policy structurally lacks, but the budget-matched baseline (Analysis "
+        "7) is the cleaner like-for-like evidence that deciding well, not merely "
+        "retrieving less, is what helps.")
     block(6, "Calibration",
         "Is the confidence used in the decision rule well calibrated?",
         "table5_calibration", "figure3_reliability",
@@ -524,17 +570,22 @@ def _results(doc, cfg, c):
         "raw verbalizer. Implication: because the decision compares this confidence "
         "against a calibrated utility, calibration quality directly affects routing, "
         "so this is a prerequisite rather than a peripheral result.")
-    block(7, "Ablation",
-        "What does each routing component contribute?",
+    block(7, "Ablation and external decision policies",
+        "What does each routing component contribute, and how does the arbiter compare "
+        "to external decision policies at a matched budget?",
         "table6_ablation", "figure7_ablation",
-        "Figure 7. Oracle agreement and end-task accuracy per routing variant.",
-        f"What happened: {c['ablation_interp']} (Table 6). The oracle row bounds the "
-        "achievable agreement and the always/never rows bound the retrieval rate. Why: "
-        "on a topical dataset, semantic similarity is itself a strong proxy for "
-        "retrieval usefulness, which limits the marginal value of the learned benefit "
-        "term. Implication: we position the benefit estimator honestly — it is most "
-        "useful where similarity is a weaker signal, a hypothesis for future "
-        "cross-domain study.")
+        "Figure 7. Oracle agreement and end-task accuracy per routing variant and "
+        "baseline.",
+        f"What happened: {c['ablation_interp']} (Table 6). The table also reports the "
+        "external Random (budget-matched), Confidence-gated, and Entropy-gated (Adaptive-"
+        "RAG-style) policies, each with a 95% CI and a paired significance test versus "
+        "the full method; the oracle row bounds achievable agreement and the always/"
+        "never rows bound the retrieval rate. Why: on a topical dataset, semantic "
+        "similarity is itself a strong proxy for retrieval usefulness, which limits the "
+        "marginal value of the learned benefit term, while calibration and the decide-"
+        "before-retrieving structure carry the advantage over the external baselines. "
+        "Implication: we position the benefit estimator honestly — it is most useful "
+        "where similarity is a weaker signal, tested directly in Analysis 11.")
     block(8, "Difficulty analysis",
         "Does the arbiter retrieve more as input difficulty rises?",
         "table_difficulty", None, None,
@@ -727,6 +778,14 @@ def _references(doc):
         "Asai, A. et al. (2024). Self-RAG: Learning to Retrieve, Generate, and "
         "Critique through Self-Reflection. ICLR.",
         "Jiang, Z. et al. (2023). Active Retrieval Augmented Generation (FLARE). EMNLP.",
+        "Mallen, A. et al. (2023). When Not to Trust Language Models: Investigating the "
+        "Effectiveness of Parametric and Non-Parametric Memories. ACL.",
+        "Jeong, S. et al. (2024). Adaptive-RAG: Learning to Adapt Retrieval-Augmented "
+        "LLMs through Question Complexity. NAACL.",
+        "Wang, Y. et al. (2023). Self-Knowledge Guided Retrieval Augmentation for Large "
+        "Language Models (SKR). Findings of EMNLP.",
+        "Kadavath, S. et al. (2022). Language Models (Mostly) Know What They Know. "
+        "arXiv:2207.05221.",
         "Geifman, Y., El-Yaniv, R. (2017). Selective Classification for Deep Neural "
         "Networks. NeurIPS.",
         "Schuster, T. et al. (2022). Confident Adaptive Language Modeling (CALM). NeurIPS.",
@@ -735,6 +794,9 @@ def _references(doc):
         "Hu, E. J. et al. (2022). LoRA: Low-Rank Adaptation of Large Language Models. ICLR.",
         "Guo, C. et al. (2017). On Calibration of Modern Neural Networks. ICML.",
         "Platt, J. (1999). Probabilistic Outputs for Support Vector Machines.",
+        "Efron, B., Tibshirani, R. (1993). An Introduction to the Bootstrap. Chapman & Hall.",
+        "Dietterich, T. G. (1998). Approximate Statistical Tests for Comparing Supervised "
+        "Classification Learning Algorithms (McNemar). Neural Computation.",
         "Sundararajan, M., Taly, A., Yan, Q. (2017). Axiomatic Attribution for Deep "
         "Networks (Integrated Gradients). ICML.",
         "Qwen Team (2024). Qwen2.5 Technical Report.",

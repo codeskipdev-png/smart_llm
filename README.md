@@ -1,7 +1,7 @@
 # SMART-LLM
 
-**Decision-Time Retrieval Arbitration for Explainable Few-Shot Large Language
-Model Text Classification**
+**Decision-Time Retrieval Arbitration for Efficient and Robust Few-Shot Large
+Language Model Text Classification**
 
 > **Thesis.** The contribution is **decision-time retrieval benefit estimation** —
 > deciding whether retrieval will help *before* retrieving — not a

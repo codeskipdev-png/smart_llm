@@ -198,3 +198,108 @@ def classification_summary(pred: np.ndarray, label: np.ndarray,
                            n_classes: int = None) -> Dict[str, float]:
     return {"accuracy": accuracy(pred, label),
             "macro_f1": macro_f1(pred, label, n_classes)}
+
+
+# --------------------------------------------------------------------------- #
+# Uncertainty and significance (numpy-only, deterministic).
+#
+# Reviewers require intervals and paired tests, not bare point estimates. These
+# helpers operate on per-sample arrays so they compose with any of the metrics
+# above and stay reproducible under a fixed seed.
+# --------------------------------------------------------------------------- #
+def bootstrap_ci(sample: np.ndarray, stat_fn=None, n_boot: int = 10000,
+                 alpha: float = 0.05, seed: int = 0):
+    """Percentile bootstrap CI for a statistic of a 1-D per-sample array.
+
+    Returns (point, lo, hi). ``stat_fn`` defaults to the mean. The resample
+    indices are drawn once and reused across the array, so paired variants can
+    share the scheme; here we only need the marginal CI.
+    """
+    sample = np.asarray(sample, dtype=np.float64)
+    n = len(sample)
+    if n == 0:
+        return float("nan"), float("nan"), float("nan")
+    stat_fn = stat_fn or (lambda a: float(np.mean(a)))
+    point = float(stat_fn(sample))
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, n, size=(n_boot, n))
+    boot = np.array([stat_fn(sample[i]) for i in idx], dtype=np.float64)
+    lo = float(np.quantile(boot, alpha / 2))
+    hi = float(np.quantile(boot, 1 - alpha / 2))
+    return point, lo, hi
+
+
+def ci_halfwidth(sample: np.ndarray, **kw) -> float:
+    """Symmetric-ish half-width (hi-lo)/2 of the bootstrap CI, for '± e' cells."""
+    _, lo, hi = bootstrap_ci(sample, **kw)
+    if lo != lo or hi != hi:
+        return float("nan")
+    return (hi - lo) / 2.0
+
+
+def paired_bootstrap_diff(a: np.ndarray, b: np.ndarray, stat_fn=None,
+                          n_boot: int = 10000, alpha: float = 0.05,
+                          seed: int = 0):
+    """Paired bootstrap for stat(a) - stat(b) on aligned per-sample arrays.
+
+    Resamples sample *indices* (not a and b independently), preserving pairing.
+    Returns dict(diff, lo, hi, p_value) where p is a two-sided bootstrap p-value
+    for H0: diff = 0 (fraction of resamples on the opposite side of 0, doubled).
+    Use for mean-regret or oracle-agreement comparisons between two policies.
+    """
+    a = np.asarray(a, dtype=np.float64)
+    b = np.asarray(b, dtype=np.float64)
+    if len(a) != len(b) or len(a) == 0:
+        return {"diff": float("nan"), "lo": float("nan"),
+                "hi": float("nan"), "p_value": float("nan")}
+    stat_fn = stat_fn or (lambda x: float(np.mean(x)))
+    n = len(a)
+    diff = float(stat_fn(a) - stat_fn(b))
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, n, size=(n_boot, n))
+    diffs = np.array([stat_fn(a[i]) - stat_fn(b[i]) for i in idx], dtype=np.float64)
+    lo = float(np.quantile(diffs, alpha / 2))
+    hi = float(np.quantile(diffs, 1 - alpha / 2))
+    # two-sided bootstrap p-value about 0
+    frac_le = float(np.mean(diffs <= 0.0))
+    frac_ge = float(np.mean(diffs >= 0.0))
+    p = min(1.0, 2.0 * min(frac_le, frac_ge))
+    return {"diff": diff, "lo": lo, "hi": hi, "p_value": p}
+
+
+def mcnemar_test(correct_a: np.ndarray, correct_b: np.ndarray) -> dict:
+    """Paired McNemar test on two per-sample correctness masks (0/1).
+
+    Compares two classifiers on the *same* test samples. Uses the exact binomial
+    two-sided p on discordant pairs when they are few, and a continuity-corrected
+    chi-square approximation when many. Returns dict(n01, n10, statistic, p_value).
+    """
+    a = np.asarray(correct_a, dtype=np.int64)
+    b = np.asarray(correct_b, dtype=np.int64)
+    if len(a) != len(b) or len(a) == 0:
+        return {"n01": 0, "n10": 0, "statistic": float("nan"),
+                "p_value": float("nan")}
+    n01 = int(np.sum((a == 0) & (b == 1)))   # a wrong, b right
+    n10 = int(np.sum((a == 1) & (b == 0)))   # a right, b wrong
+    nd = n01 + n10
+    if nd == 0:
+        return {"n01": 0, "n10": 0, "statistic": 0.0, "p_value": 1.0}
+    if nd <= 100:                            # exact two-sided binomial (p=0.5)
+        from math import comb
+        k = min(n01, n10)
+        tail = sum(comb(nd, i) for i in range(0, k + 1)) * (0.5 ** nd)
+        p = min(1.0, 2.0 * tail)
+        stat = float(min(n01, n10))
+    else:                                    # chi-square with continuity correction
+        stat = (abs(n01 - n10) - 1.0) ** 2 / nd
+        # survival of chi-square with 1 dof = erfc(sqrt(stat/2))
+        from math import erfc, sqrt
+        p = float(erfc(sqrt(stat / 2.0)))
+    return {"n01": n01, "n10": n10, "statistic": float(stat), "p_value": float(p)}
+
+
+def sig_marker(p_value: float, alpha: float = 0.05) -> str:
+    """'*' if significant, 'n.s.' otherwise, '' if undefined — for table cells."""
+    if p_value is None or p_value != p_value:
+        return ""
+    return "*" if p_value < alpha else "n.s."

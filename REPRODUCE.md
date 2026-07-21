@@ -24,6 +24,40 @@ Fast sanity check (0.5B model, tiny data):
 bash scripts/run_all.sh configs/debug.yaml 20newsgroups
 ```
 
+### 0b. No local GPU? Rent one (the heavy stage is the only GPU step)
+
+Only `generate_features` (Stage 1) needs a GPU; everything else runs on CPU in
+seconds off the cache. On a fresh cloud box (RunPod / Lambda / Vast / any
+single 24 GB card):
+
+```bash
+git clone <this repo> && cd smart_llm
+pip install torch --index-url https://download.pytorch.org/whl/cu121
+pip install -r requirements.txt
+export HF_HUB_DISABLE_XET=1              # classic HTTPS downloads
+# full multi-seed study, both datasets, ~a few GPU-hours at max_eval=1500:
+bash scripts/run_cross.sh configs/default.yaml 20newsgroups twitter_financial
+python -m smart_llm.experiments.ablation --config configs/default.yaml \
+       --dataset 20newsgroups --seeds 0,1,2,3,4     # multi-seed ablation + baselines
+python -m smart_llm.paper.make_manuscript --config configs/default.yaml \
+       --dataset 20newsgroups                        # real numbers replace TBD
+```
+
+Then copy `runs/**/paper/SMART_LLM_main.docx` back. **Without a GPU you cannot
+produce real numbers** — the two document generators emit clearly-marked
+placeholders (`make_full_paper.py`) or `[[TBD-from-run]]` (`make_manuscript.py`),
+never fabricated measurements. Validate the CPU logic first with the smoke test
+in §6 before renting time.
+
+### 0c. What is illustrative vs. real
+
+`make_full_paper.py` builds `runs/paper_full/SMART_LLM_full.docx` from a single
+source-of-truth dict of **illustrative template numbers** (internally consistent,
+NOT measurements) so the structure, positioning, proofs, baselines, and
+statistical protocol can be reviewed before the run. `make_manuscript.py` builds
+the submission doc from per-sample logs and renders `[[TBD-from-run]]` for any
+table that has not been produced yet. Only the latter is citable.
+
 ---
 
 ## 1. Execution order (copy/paste)
@@ -100,7 +134,7 @@ larger on Financial PhraseBank, and says so honestly otherwise.
 | 4 | Retrieval behaviour (freq / demos / prompt length / margins) | Table (behaviour), Figure 5 |
 | 5 | Noise robustness (clean / random / adversarial) | Table 4, Figure 6 |
 | 6 | Calibration (ECE / Brier / reliability) | Table 5, Figure 3 |
-| 7 | Ablation (− RBE / − Calibration / references) | Table 6, Figure 7 |
+| 7 | Ablation (− RBE / − Calibration) **+ external decision-policy baselines** (Random budget-matched, Confidence-gated, Entropy-gated / Adaptive-RAG-style) with 95% bootstrap CIs and paired McNemar/bootstrap significance vs. SMART | Table 6, Figure 7 |
 | 8 | Difficulty (easy / medium / hard) | Table (difficulty) |
 | 9 | Qualitative case study (5 success + 5 failure) | Figure 8, `results/case_study_*.md` |
 | 10 | Computation (latency / retrieval reduction / compute / tokens) | Table 7 |
@@ -139,7 +173,12 @@ Missing result files render as `[[TBD-from-run]]` in the manuscript — never fa
 
 ## 5. Determinism, resources, honesty notes
 
-* One seed drives numpy/torch/splits; deterministic matmul is enabled.
+* One seed drives numpy/torch/splits; deterministic matmul is enabled. The
+  **multi-seed** aggregate (`ablation --seeds 0,1,2,3,4`) re-draws the split and
+  re-fits the probe/RBE/calibrator per seed on the SAME cached features (no LLM
+  re-run), and reports seed-mean ± across-seed std alongside per-sample bootstrap
+  CIs. Significance uses a paired McNemar test (accuracy) and a paired bootstrap
+  (mean regret / oracle agreement); differences are marked `*` (p<0.05) or `n.s.`
 * Stage-1 cost ≈ `max_eval × (1 + |conditions|)` 7B passes (defaults 1500 × 4).
 * **Latency is reported honestly:** SMART pays a parametric pass to obtain `C_i`
   and `h_L`, so its advantage is *fewer augmented passes and robustness*, not a
