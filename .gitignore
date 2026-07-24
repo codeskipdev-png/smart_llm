@@ -1,5 +1,4 @@
 # run outputs (caches, results, figures, tables, papers, checkpoints)
-runs/
 *.log
 
 # python
